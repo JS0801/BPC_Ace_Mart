@@ -1,0 +1,139 @@
+<workflow scriptid="customworkflow_a1w_delete_close">
+  <description></description>
+  <initcontexts></initcontexts>
+  <initeventtypes>EDIT|VIEW</initeventtypes>
+  <initlocalizationcontext></initlocalizationcontext>
+  <initoncreate>F</initoncreate>
+  <initonvieworupdate>T</initonvieworupdate>
+  <initsavedsearchcondition></initsavedsearchcondition>
+  <inittriggertype>BEFORELOAD</inittriggertype>
+  <isinactive>F</isinactive>
+  <islogenabled>T</islogenabled>
+  <keephistory>ALWAYS</keephistory>
+  <name>Warehouse Edge Close Deletion</name>
+  <recordtypes>INTERCOMPANYTRANSFERORDER|PURCHASEORDER|RETURNAUTHORIZATION|SALESORDER|TRANSFERORDER|VENDORRETURNAUTHORIZATION|WORKORDER</recordtypes>
+  <releasestatus>RELEASED</releasestatus>
+  <runasadmin>T</runasadmin>
+  <initcondition>
+    <formula></formula>
+    <type>VISUAL_BUILDER</type>
+  </initcondition>
+  <workflowstates>
+    <workflowstate scriptid="workflowstate102">
+      <description></description>
+      <donotexitworkflow>F</donotexitworkflow>
+      <name>InitialState</name>
+      <positionx>243</positionx>
+      <positiony>133</positiony>
+      <workflowtransitions>
+        <workflowtransition scriptid="workflowtransition275">
+          <buttonaction></buttonaction>
+          <conditionsavedsearch></conditionsavedsearch>
+          <contexttypes></contexttypes>
+          <eventtypes></eventtypes>
+          <scheduledelay></scheduledelay>
+          <scheduletimeunit></scheduletimeunit>
+          <tostate>[scriptid=customworkflow_a1w_delete_close.workflowstate103]</tostate>
+          <triggertype></triggertype>
+          <waitforworkflow></waitforworkflow>
+          <waitforworkflowstate></waitforworkflowstate>
+          <initcondition>
+            <formula><![CDATA["Status" IN ("Transaction Status1","Transaction Status2","Transaction Status3","Transaction Status4","Transaction Status5","Transaction Status6") AND isChecked("Download To Warehouse Edge") = 'T']]></formula>
+            <type>VISUAL_BUILDER</type>
+            <parameters>
+              <parameter>
+                <name>Status</name>
+                <value>STDBODYSTATUS</value>
+              </parameter>
+              <parameter>
+                <name>Transaction Status1</name>
+                <selectrecordtype>-164</selectrecordtype>
+                <value>24</value>
+              </parameter>
+              <parameter>
+                <name>Transaction Status2</name>
+                <selectrecordtype>-164</selectrecordtype>
+                <value>51</value>
+              </parameter>
+              <parameter>
+                <name>Transaction Status3</name>
+                <selectrecordtype>-164</selectrecordtype>
+                <value>42</value>
+              </parameter>
+              <parameter>
+                <name>Transaction Status4</name>
+                <selectrecordtype>-164</selectrecordtype>
+                <value>18</value>
+              </parameter>
+              <parameter>
+                <name>Transaction Status5</name>
+                <selectrecordtype>-164</selectrecordtype>
+                <value>33</value>
+              </parameter>
+              <parameter>
+                <name>Transaction Status6</name>
+                <selectrecordtype>-164</selectrecordtype>
+                <value>60</value>
+              </parameter>
+              <parameter>
+                <name>Download To Warehouse Edge</name>
+                <value>[scriptid=custbody_a1wms_dnloadtowms]</value>
+              </parameter>
+            </parameters>
+          </initcondition>
+        </workflowtransition>
+      </workflowtransitions>
+    </workflowstate>
+    <workflowstate scriptid="workflowstate103">
+      <description></description>
+      <donotexitworkflow>F</donotexitworkflow>
+      <name>SendDelete</name>
+      <positionx>243</positionx>
+      <positiony>223</positiony>
+      <workflowactions triggertype="ONENTRY">
+        <customaction scriptid="workflowaction286">
+          <conditionsavedsearch></conditionsavedsearch>
+          <contexttypes></contexttypes>
+          <eventtypes></eventtypes>
+          <isinactive>F</isinactive>
+          <resultfield></resultfield>
+          <scheduledelay></scheduledelay>
+          <schedulemode>DELAY</schedulemode>
+          <schedulerecurrence></schedulerecurrence>
+          <scheduletimeofday></scheduletimeofday>
+          <scheduletimeunit></scheduletimeunit>
+          <scripttype>[scriptid=customscript_a1w_delete_close]</scripttype>
+          <initcondition>
+            <formula></formula>
+            <type>VISUAL_BUILDER</type>
+          </initcondition>
+        </customaction>
+      </workflowactions>
+      <workflowtransitions>
+        <workflowtransition scriptid="workflowtransition276">
+          <buttonaction></buttonaction>
+          <conditionsavedsearch></conditionsavedsearch>
+          <contexttypes></contexttypes>
+          <eventtypes></eventtypes>
+          <scheduledelay></scheduledelay>
+          <scheduletimeunit></scheduletimeunit>
+          <tostate>[scriptid=customworkflow_a1w_delete_close.workflowstate104]</tostate>
+          <triggertype></triggertype>
+          <waitforworkflow></waitforworkflow>
+          <waitforworkflowstate></waitforworkflowstate>
+          <initcondition>
+            <formula></formula>
+            <type>VISUAL_BUILDER</type>
+          </initcondition>
+        </workflowtransition>
+      </workflowtransitions>
+    </workflowstate>
+    <workflowstate scriptid="workflowstate104">
+      <description></description>
+      <donotexitworkflow>T</donotexitworkflow>
+      <name>FinalState</name>
+      <positionx>243</positionx>
+      <positiony>313</positiony>
+    </workflowstate>
+  </workflowstates>
+</workflow>
