@@ -18,13 +18,9 @@ define(['N/encode', 'N/file', 'N/log', 'N/ui/serverWidget'], (
 
   function onRequest(context) {
     try {
-      if (context.request.method === 'POST' || context.request.parameters[PARAM_RTF_FILE_ID]) {
-        const rtfFileId = context.request.parameters[PARAM_RTF_FILE_ID];
-        const outputFolderId = context.request.parameters[PARAM_OUTPUT_FOLDER_ID];
-
-        if (!rtfFileId || !outputFolderId) {
-          throw new Error('Missing required rtfFileId or folderId.');
-        }
+      if (context.request.method === 'POST') {
+        const rtfFileId =68944
+        const outputFolderId;
 
         const result = convertRtfEmbeddedImage({
           rtfFileId,
