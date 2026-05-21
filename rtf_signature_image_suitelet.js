@@ -20,7 +20,7 @@ define(['N/encode', 'N/file', 'N/log', 'N/ui/serverWidget'], (
     try {
       if (context.request.method === 'POST') {
         const rtfFileId =68944
-        const outputFolderId;
+        const outputFolderId = null;
 
         const result = convertRtfEmbeddedImage({
           rtfFileId,
