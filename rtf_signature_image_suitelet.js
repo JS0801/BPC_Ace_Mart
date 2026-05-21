@@ -12,7 +12,7 @@ define(['N/encode', 'N/file', 'N/log', 'N/ui/serverWidget'], (
   log,
   serverWidget
 ) => {
-  const PARAM_RTF_FILE_ID = 'rtfFileId';
+  const PARAM_RTF_FILE_ID = 'custpage_rtfFileId';
   const PARAM_OUTPUT_FOLDER_ID = 'folderId';
   const PARAM_JSON = 'json';
 
