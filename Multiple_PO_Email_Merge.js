@@ -75,8 +75,9 @@ define([
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
     var CREC_GROUP_NUMBER = 'custrecord_group_number';
     var CREC_PO_NUMBER = 'custrecord_po_number'; 
-    var CREC_GROUP_MEMO = 'custrecord_group_memo';
     var CREC_MASTER_MEMO = 'custrecord_master_memo';
+    var CREC_EMAIL_SUBJECT = 'custrecord_email_subject';
+    var CREC_EMAIL_BODY = 'custrecord_email_body';
     var CREC_DATE_SENT = 'custrecord_date_sent';
     var CREC_LAST_SENT_DATE = 'custrecord_last_sent_date';
     var CREC_SENDER = 'custrecord_sender';
@@ -100,7 +101,7 @@ define([
     var FLD_DATE_TO = 'custpage_filter_date_to';
     var FLD_EMAIL_STATUS = 'custpage_filter_email_status';
     var FLD_GROUP_NUMBER = 'custpage_filter_group_number';
-    var FLD_RESEND_GROUP = 'custpage_filter_resend_group';
+    var FLD_EMAIL_SUBJECT = 'custpage_email_subject';
     var FLD_EMAIL_BODY_MEMO = 'custpage_email_body_memo';
     var FLD_MASTER_MEMO = 'custpage_master_memo';       
     var FLD_GROUP_MEMO_MAP = 'custpage_group_memo_map';  
@@ -121,6 +122,7 @@ define([
 
             var filters = buildFiltersFromParams(params);
             var emailBodyMemo = params[FLD_EMAIL_BODY_MEMO] || '';
+            var emailSubject = params[FLD_EMAIL_SUBJECT] || '';
             var masterMemo = params[FLD_MASTER_MEMO] || '';
             var groupMemoMap = parseGroupMemoMap(params[FLD_GROUP_MEMO_MAP]);
             var resultMessage = null;
@@ -133,11 +135,11 @@ define([
             if (request.method === 'POST') {
                 var actionMode = params[FLD_ACTION] || 'filter';
                 if (actionMode === 'send' || actionMode === 'resend') {
-                    resultMessage = processSelectedPOs(params[FLD_SELECTED_IDS], actionMode, emailBodyMemo, masterMemo, groupMemoMap);
+                    resultMessage = processSelectedPOs(params[FLD_SELECTED_IDS], actionMode, emailBodyMemo, masterMemo, groupMemoMap, emailSubject);
                 }
             }
 
-            showPage(context, filters, resultMessage, emailBodyMemo);
+            showPage(context, filters, resultMessage, emailBodyMemo, emailSubject);
         } catch (e) {
             log.error('Suitelet Error', e);
             if (isAjax) {
@@ -157,8 +159,7 @@ define([
             dateFrom: params[FLD_DATE_FROM] || '',
             dateTo: params[FLD_DATE_TO] || '',
             emailStatus: params[FLD_EMAIL_STATUS] || '',
-            groupNumber: params[FLD_GROUP_NUMBER] || '',
-            resendGroup: params[FLD_RESEND_GROUP] === 'T' ? 'T' : ''
+            groupNumber: params[FLD_GROUP_NUMBER] || ''
         };
     }
 
@@ -166,8 +167,9 @@ define([
         var ajaxAction = params[FLD_AJAX_ACTION] || params[FLD_ACTION] || 'filter';
         if (ajaxAction === 'send' || ajaxAction === 'resend') {
             var masterMemo = params[FLD_MASTER_MEMO] || '';
+            var emailSubject = params[FLD_EMAIL_SUBJECT] || '';
             var groupMemoMap = parseGroupMemoMap(params[FLD_GROUP_MEMO_MAP]);
-            var resultMessage = processSelectedPOs(params[FLD_SELECTED_IDS], ajaxAction, emailBodyMemo, masterMemo, groupMemoMap);
+            var resultMessage = processSelectedPOs(params[FLD_SELECTED_IDS], ajaxAction, emailBodyMemo, masterMemo, groupMemoMap, emailSubject);
 
             writeJson(context, {
                 success: resultMessage.errors.length === 0,
@@ -189,10 +191,10 @@ define([
 
     function hasAnyFilter(filters) {
         if (!filters) return false;
-        return !!(filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.groupNumber || filters.resendGroup === 'T');
+        return !!(filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.groupNumber);
     }
 
-    function showPage(context, filters, resultMessage, emailBodyMemo) {
+    function showPage(context, filters, resultMessage, emailBodyMemo, emailSubject) {
         var form = serverWidget.createForm({ title: ' ' });
 
         var actionFld = form.addField({ id: FLD_ACTION, type: serverWidget.FieldType.TEXT, label: 'Action' });
@@ -214,6 +216,7 @@ define([
             filters: filters,
             resultMessage: resultMessage,
             emailBodyMemo: emailBodyMemo,
+            emailSubject: emailSubject,
             suiteletUrl: getSuiteletUrl()
         });
 
@@ -234,8 +237,8 @@ define([
         var fieldIds = {
             action: FLD_ACTION, selectedIds: FLD_SELECTED_IDS, po: FLD_PO, poText: FLD_PO_TEXT,
             vendor: FLD_VENDOR, vendorText: FLD_VENDOR_TEXT, dateFrom: FLD_DATE_FROM, dateTo: FLD_DATE_TO,
-            emailStatus: FLD_EMAIL_STATUS, groupNumber: FLD_GROUP_NUMBER, resendGroup: FLD_RESEND_GROUP,
-            emailBodyMemo: FLD_EMAIL_BODY_MEMO, masterMemo: FLD_MASTER_MEMO, groupMemoMap: FLD_GROUP_MEMO_MAP,
+            emailStatus: FLD_EMAIL_STATUS, groupNumber: FLD_GROUP_NUMBER,
+            emailBodyMemo: FLD_EMAIL_BODY_MEMO, emailSubject: FLD_EMAIL_SUBJECT, masterMemo: FLD_MASTER_MEMO, groupMemoMap: FLD_GROUP_MEMO_MAP,
             ajax: FLD_AJAX, ajaxAction: FLD_AJAX_ACTION
         };
 
@@ -247,6 +250,7 @@ define([
         html = replaceTemplateToken(html, 'VENDOR_OPTIONS_JSON', safeJson(dataObj.vendorOptions || []));
         html = replaceTemplateToken(html, 'RESULT_MESSAGE_JSON', safeJson(dataObj.resultMessage || null));
         html = replaceTemplateToken(html, 'EMAIL_BODY_MEMO_JSON', safeJson(dataObj.emailBodyMemo || ''));
+        html = replaceTemplateToken(html, 'EMAIL_SUBJECT_JSON', safeJson(dataObj.emailSubject || ''));
 
         return html;
     }
@@ -517,10 +521,6 @@ define([
             searchFilters.push('AND');
             searchFilters.push([FIELD_GROUP_NUMBER, 'contains', filters.groupNumber]);
         }
-        if (filters.resendGroup === 'T') {
-            searchFilters.push('AND');
-            searchFilters.push([FIELD_GROUP_NUMBER, 'isnotempty', '']);
-        }
         if (!ignorePoFilter && filters.poId) {
             searchFilters.push('AND');
             searchFilters.push(['internalid', 'anyof', filters.poId]);
@@ -546,9 +546,10 @@ define([
         return ids;
     }
 
-    function processSelectedPOs(selectedIdsText, actionMode, emailBodyMemo, masterMemo, groupMemoMap) {
+    function processSelectedPOs(selectedIdsText, actionMode, emailBodyMemo, masterMemo, groupMemoMap, emailSubject) {
         groupMemoMap = groupMemoMap || {};
         masterMemo = masterMemo || '';
+        emailSubject = emailSubject || '';
 
         var response = { sent: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', actionMode: actionMode || '' };
         var selectedIds = parseSelectedIds(selectedIdsText);
@@ -620,7 +621,7 @@ define([
             var po = poList[i];
             if (actionMode === 'send') {
                 if (po.emailSent || po.groupNumber) {
-                    response.skipped.push(po.tranId + ' skipped because it already belongs to Group Number ' + po.groupNumber + '. Use Resend Group checkbox.');
+                    response.skipped.push(po.tranId + ' skipped because it already belongs to Group Number ' + po.groupNumber + '. Select it to resend that group instead.');
                     continue;
                 }
             }
@@ -642,15 +643,38 @@ define([
             // FIX #3: reuse the exact original group number on resend - never
             // regenerate or re-derive it from the (re-fetched) PO list.
             var groupNumber = (actionMode === 'resend') ? resendGroupNumber : generateGroupNumber(group.vendorId);
+            var emailBody = buildMemoEmailBody(group.poList, emailBodyMemo);
+            var subjectToUse = emailSubject ? emailSubject : (EMAIL_SUBJECT_PREFIX + ' - ' + group.poNumbers.join(', '));
+
+            // Cover/summary page data - mirrors EVERY field tracked on the
+            // customrecord_grouped_pos record except custrecord_generated_pdf
+            // (no need for that one here since this IS the merged PDF).
+            // Rendered as page 1 of the merged PDF, ahead of the PO pages.
+            var currentUser = runtime.getCurrentUser();
+            var trackingSnapshot = getExistingTrackingSnapshot(groupNumber, actionMode === 'resend');
+            var nowDisplay = formatDateForSummary(new Date());
+            var summaryInfo = {
+                groupNumber: groupNumber,                                        // custrecord_group_number
+                poNumbers: group.poNumbers,                                      // custrecord_po_number
+                masterMemo: masterMemo,                                          // custrecord_master_memo
+                emailSubject: subjectToUse,                                      // custrecord_email_subject
+                emailBody: emailBody,                                            // custrecord_email_body
+                dateSentDisplay: trackingSnapshot.dateSent ? formatDateForSummary(trackingSnapshot.dateSent) : nowDisplay, // custrecord_date_sent
+                lastSentDateDisplay: nowDisplay,                                 // custrecord_last_sent_date
+                sentByName: (currentUser && currentUser.name) ? currentUser.name : 'System', // custrecord_sender
+                recipientDisplay: group.vendorName + (group.vendorEmail ? (' <' + group.vendorEmail + '>') : ''), // custrecord_recipient
+                vendorName: group.vendorName,                                    // custrecord_vendor
+                emailStatusDisplay: (actionMode === 'resend') ? 'Resend' : 'Sent', // custrecord_email_status
+                revisionNumber: trackingSnapshot.revision                        // custrecord_revision_number
+            };
 
             // OPTIMIZED: Accelerated PDF building
-            var mergedPdf = createMergedPoPdf(group.poIds, group.vendorName);
-            var emailBody = buildMemoEmailBody(group.poList, emailBodyMemo);
+            var mergedPdf = createMergedPoPdf(group.poIds, group.vendorName, summaryInfo);
 
             email.send({
                 author: runtime.getCurrentUser().id,
                 recipients: Number(group.vendorId),
-                subject: EMAIL_SUBJECT_PREFIX + ' - ' + group.poNumbers.join(', '),
+                subject: subjectToUse,
                 body: emailBody,
                 attachments: [mergedPdf],
                 relatedRecords: { entityId: Number(group.vendorId) }
@@ -659,6 +683,8 @@ define([
             updatePOAndCustomRecord(group.poIds, groupNumber, {
                 groupMemoMap: groupMemoMap,
                 masterMemo: masterMemo,
+                emailSubject: subjectToUse,
+                emailBody: emailBody,
                 actionMode: actionMode || '',
                 vendorId: group.vendorId,
                 vendorName: group.vendorName,
@@ -773,9 +799,110 @@ define([
      * HIGHLY OPTIMIZED PDF MERGE
      * Generates files purely in memory without File Cabinet I/O disk writes
      */
-    function createMergedPoPdf(poIds, vendorName) {
+    function formatDateForSummary(d) {
+        try {
+            return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+        } catch (e) {
+            return String(d);
+        }
+    }
+
+    function summaryFieldRow(label, value) {
+        if (!value) return '';
+        return '<tr>' +
+            '<td style="width:150pt;font-weight:bold;padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapeHtml(label) + '</td>' +
+            '<td style="padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapeHtml(value) + '</td>' +
+            '</tr>';
+    }
+
+    function stripHtmlToPlainText(html) {
+        if (!html) return '';
+        var text = String(html)
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/p>/gi, '\n')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"');
+        return text.replace(/\n{2,}/g, '\n').replace(/^\s+|\s+$/g, '');
+    }
+
+    // Like summaryFieldRow, but for values that may span multiple lines
+    // (Email Body) - converts to plain text first, then rebuilds real <br/>
+    // line breaks (each line individually escaped) instead of relying on
+    // literal newline characters, which most PDF/HTML renderers collapse.
+    function summaryMultilineFieldRow(label, htmlOrText) {
+        var plainText = stripHtmlToPlainText(htmlOrText);
+        if (!plainText) return '';
+
+        var lines = plainText.split('\n');
+        var escapedLines = [];
+        for (var i = 0; i < lines.length; i++) {
+            escapedLines.push(escapeHtml(lines[i]));
+        }
+
+        return '<tr>' +
+            '<td style="width:150pt;font-weight:bold;padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapeHtml(label) + '</td>' +
+            '<td style="padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapedLines.join('<br/>') + '</td>' +
+            '</tr>';
+    }
+
+    // Builds a one-page PDF/HTML (BFO report XML) summary that mirrors EVERY
+    // field tracked on customrecord_grouped_pos except custrecord_generated_pdf
+    // (not applicable here since this cover page becomes part of that same
+    // merged PDF). Prepended as page 1 of the merged PDF, ahead of the PO
+    // pages.
+    function buildSummaryPageXml(summary) {
+        var rows = '';
+        rows += summaryFieldRow('Group Number', summary.groupNumber);                          // custrecord_group_number
+        rows += summaryFieldRow('Purchase Order(s)', (summary.poNumbers || []).join(', '));     // custrecord_po_number
+        rows += summaryFieldRow('Vendor', summary.vendorName);                                  // custrecord_vendor
+        rows += summaryFieldRow('Recipient', summary.recipientDisplay);                         // custrecord_recipient
+        rows += summaryFieldRow('Sender', summary.sentByName);                                  // custrecord_sender
+        rows += summaryFieldRow('Email Subject', summary.emailSubject);                         // custrecord_email_subject
+        rows += summaryMultilineFieldRow('Email Body', summary.emailBody);                      // custrecord_email_body
+        rows += summaryFieldRow('Master Memo', summary.masterMemo);                             // custrecord_master_memo
+        rows += summaryFieldRow('Email Status', summary.emailStatusDisplay);                    // custrecord_email_status
+        rows += summaryFieldRow('Date Sent', summary.dateSentDisplay);                          // custrecord_date_sent
+        rows += summaryFieldRow('Last Sent Date', summary.lastSentDateDisplay);                 // custrecord_last_sent_date
+        rows += summaryFieldRow('Revision Number', String(summary.revisionNumber));             // custrecord_revision_number
+
+        return '<?xml version="1.0"?>' +
+            '<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">' +
+            '<pdf>' +
+            '<body padding="0.6in 0.7in" font-family="Helvetica">' +
+            '<table style="width:100%;"><tr><td style="font-size:20pt;font-weight:bold;padding-bottom:16pt;">Purchase Order Email Summary</td></tr></table>' +
+            '<table style="width:100%;border-collapse:collapse;font-size:10pt;">' + rows + '</table>' +
+            '</body>' +
+            '</pdf>';
+    }
+
+    function createSummaryPagePdf(summary) {
+        try {
+            var summaryXml = buildSummaryPageXml(summary);
+            return render.xmlToPdf({ xmlString: summaryXml });
+        } catch (e) {
+            log.error('Summary Page Generation Failed', e);
+            return null;
+        }
+    }
+
+    function createMergedPoPdf(poIds, vendorName, summaryInfo) {
         var pdfSetXml = '<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd"><pdfset>';
-        
+
+        // Prepend the summary/cover page as the very first page, before any
+        // PO pages. If it fails for any reason, log it and continue without
+        // it rather than blocking the whole send.
+        if (summaryInfo) {
+            var summaryPdf = createSummaryPagePdf(summaryInfo);
+            if (summaryPdf) {
+                var summaryBase64 = summaryPdf.getContents();
+                pdfSetXml += '<pdf src="data:application/pdf;base64,' + summaryBase64 + '"/>';
+            }
+        }
+
         for (var i = 0; i < poIds.length; i++) {
             var poPdf = render.transaction({ 
                 entityId: Number(poIds[i]), 
@@ -810,6 +937,32 @@ define([
     // trims the group number to avoid whitespace-mismatch misses. Logs
     // clearly whenever it can't find an existing record on a resend, so this
     // is diagnosable going forward instead of silently creating duplicates.
+    // Looks up the existing tracking record (on resend only) purely to read
+    // its current Revision Number and original Date Sent, so the summary
+    // page can show the RESULTING values before the actual update happens
+    // later in updatePOAndCustomRecord. Read-only - does not modify anything.
+    function getExistingTrackingSnapshot(groupNumber, isResend) {
+        if (!isResend) {
+            return { revision: 0, dateSent: null };
+        }
+
+        var existingId = findGroupCustomRecordId(groupNumber);
+        if (!existingId) {
+            return { revision: 0, dateSent: null };
+        }
+
+        try {
+            var rec = record.load({ type: CUSTOM_REC_TYPE, id: existingId, isDynamic: false });
+            var rev = rec.getValue({ fieldId: CREC_REVISION_NUMBER });
+            var revNum = (rev === '' || rev === null || rev === undefined) ? 0 : parseInt(rev, 10);
+            var dateSent = rec.getValue({ fieldId: CREC_DATE_SENT }) || null;
+            return { revision: revNum + 1, dateSent: dateSent };
+        } catch (e) {
+            log.error('Tracking Snapshot Lookup Failed', { groupNumber: groupNumber, error: e });
+            return { revision: 0, dateSent: null };
+        }
+    }
+
     function findGroupCustomRecordId(groupNumber) {
         var cleanGroupNumber = String(groupNumber || '').replace(/^\s+|\s+$/g, '');
         if (!cleanGroupNumber) return null;
@@ -838,6 +991,8 @@ define([
     function updatePOAndCustomRecord(poIds, groupNumber, opts) {
         var groupMemoMap = opts.groupMemoMap || {};
         var masterMemo = opts.masterMemo || '';
+        var emailSubject = opts.emailSubject || '';
+        var emailBody = opts.emailBody || '';
         var isResend = opts.actionMode === 'resend';
         var vendorId = opts.vendorId;
         var vendorName = opts.vendorName || '';
@@ -913,6 +1068,13 @@ define([
             // internal IDs for every PO in this group.
             customRecordObj.setValue({ fieldId: CREC_PO_NUMBER, value: poIds });
             customRecordObj.setValue({ fieldId: CREC_MASTER_MEMO, value: masterMemo });
+            customRecordObj.setValue({ fieldId: CREC_EMAIL_SUBJECT, value: emailSubject });
+            // Store the plain-text version (real line breaks) here rather
+            // than the raw HTML used for the actual email - otherwise this
+            // field shows literal "<br/>" tags instead of separated lines.
+            // The PDF summary already does this same conversion via
+            // stripHtmlToPlainText for the same reason.
+            customRecordObj.setValue({ fieldId: CREC_EMAIL_BODY, value: stripHtmlToPlainText(emailBody) });
             customRecordObj.setValue({ fieldId: CREC_LAST_SENT_DATE, value: new Date() });
 
             if (runtime.getCurrentUser().id > 0) {
