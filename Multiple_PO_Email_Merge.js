@@ -410,7 +410,7 @@ define([
             search.createColumn({ name: 'internalid' }),
             search.createColumn({ name: 'tranid', sort: search.Sort.DESC }),
             search.createColumn({ name: 'entity' }),
-            search.createColumn({ name: 'datecreated' }),
+            search.createColumn({ name: 'trandate' }),
             search.createColumn({ name: 'memo' }),
             search.createColumn({ name: 'amount' }),
             search.createColumn({ name: FIELD_EMAIL_SENT }),
@@ -432,7 +432,7 @@ define([
             } catch (linkErr) {
                 rowObj.poUrl = '';
             }
-            rowObj.dateCreated = result.getValue({ name: 'datecreated' }) || '';
+            rowObj.dateCreated = result.getValue({ name: 'trandate' }) || '';
             rowObj.amount = result.getValue({ name: 'amount' }) || '';
             data.push(rowObj);
         });
@@ -491,13 +491,13 @@ define([
 
         if (filters.dateFrom && filters.dateTo) {
             searchFilters.push('AND');
-            searchFilters.push(['datecreated', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
+            searchFilters.push(['trandate', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
         } else if (filters.dateFrom) {
             searchFilters.push('AND');
-            searchFilters.push(['datecreated', 'onorafter', convertHtmlDateToNsDate(filters.dateFrom)]);
+            searchFilters.push(['trandate', 'onorafter', convertHtmlDateToNsDate(filters.dateFrom)]);
         } else if (filters.dateTo) {
             searchFilters.push('AND');
-            searchFilters.push(['datecreated', 'onorbefore', convertHtmlDateToNsDate(filters.dateTo)]);
+            searchFilters.push(['trandate', 'onorbefore', convertHtmlDateToNsDate(filters.dateTo)]);
         }
 
         if (filters.vendorId) {
