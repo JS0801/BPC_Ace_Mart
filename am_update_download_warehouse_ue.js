@@ -328,11 +328,11 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
     }
 
     function roundAmount(value) {
-        return Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
+        return parseFloat(value).toFixed(2);
     }
 
     function isSameAmount(value1, value2) {
-        return Math.abs(toNumber(value1) - toNumber(value2)) < 0.005;
+        if (value1 != value2) return true;
     }
 
     return {
