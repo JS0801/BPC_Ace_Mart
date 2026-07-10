@@ -140,7 +140,7 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
                 value: shouldDownloadToWms
             });
 
-            var actualBillAmount = toNumber(soRec.getValue({
+            var actualBillAmount = parseFloat(soRec.getValue({
                 fieldId: FIELD_SO_ACTUAL_BILL_AMOUNT
             }));
 
@@ -154,7 +154,7 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
             } else {
                 // No terms -> deposit-driven flow, sum ALL customer deposits (multiple allowed).
                 totalDepositPaidAmount = depositSummary.totalAmount;
-                remainingAmount = roundAmount(actualBillAmount - totalDepositPaidAmount);
+                remainingAmount = Math.round(((actualBillAmount - totalDepositPaidAmount) + Number.EPSILON) * 100) / 100;
             }
 
             log.debug('Deposit Amount Calculation', {
@@ -184,7 +184,7 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
             });
           log.debug('currentDepositPaidAmount',currentDepositPaidAmount)
 
-            if (!isSameAmount(currentDepositPaidAmount, totalDepositPaidAmount)) {
+            if (parseFloat(currentDepositPaidAmount) !=  parseFloat(totalDepositPaidAmount)) {
                 soRec.setValue({
                     fieldId: FIELD_SO_DEPOSIT_PAID_AMOUNT,
                     value: totalDepositPaidAmount
@@ -196,7 +196,7 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
                 fieldId: FIELD_SO_REMAINING_AMOUNT
             });
             log.debug('currentRemainingAmount',currentRemainingAmount)
-            if (!isSameAmount(currentRemainingAmount, remainingAmount)) {
+            if (parseFloat(currentDepositPaidAmount) !=  parseFloat(remainingAmount)) {
                 soRec.setValue({
                     fieldId: FIELD_SO_REMAINING_AMOUNT,
                     value: remainingAmount
@@ -280,19 +280,19 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
 
             if (results && results.length > 0) {
 
-                var count = toNumber(results[0].getValue({
+                var count = results[0].getValue({
                     name: 'internalid',
                     summary: 'COUNT'
-                }));
+                });
 
-                var sumAmount = toNumber(results[0].getValue({
+                var sumAmount = results[0].getValue({
                     name: 'amount',
                     summary: 'SUM'
-                }));
+                });
 
                 summary.count = count;
                 summary.exists = count > 0;
-                summary.totalAmount = roundAmount(sumAmount);
+                summary.totalAmount = parseFloat(sumAmount);
             }
 
             log.debug('Customer Deposit Summary Search End', {
@@ -310,29 +310,6 @@ define(['N/record', 'N/search', 'N/log'], function (record, search, log) {
         }
 
         return summary;
-    }
-
-    function toNumber(value) {
-        if (value == null || value == undefined || value == '' || value == 0 || value == '0.00') {
-            return 0;
-        }
-
-        var cleanValue = String(value).replace(/,/g, '');
-        var numberValue = parseFloat(cleanValue);
-
-        if (isNaN(numberValue)) {
-            return 0;
-        }
-
-        return numberValue;
-    }
-
-    function roundAmount(value) {
-        return parseFloat(value).toFixed(2);
-    }
-
-    function isSameAmount(value1, value2) {
-        if (value1 != value2) return true;
     }
 
     return {
