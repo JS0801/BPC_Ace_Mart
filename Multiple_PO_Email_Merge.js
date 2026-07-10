@@ -536,7 +536,7 @@ define([
         var tracking = null;
         var mergedPdf = null;
         var pdfAttached = false;
-        var emailBody = textToHtml(options.emailBodyText || '');
+        var emailBody = options.emailBodyText || '';
         var emailSubject = options.emailSubject || '';
 
         try {
