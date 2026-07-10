@@ -76,6 +76,7 @@ define([
     var MAX_UI_PO_ROWS = 500;
     var MAX_PO_OPTION_ROWS = 100;
     var MAX_VENDOR_OPTION_ROWS = 500;
+    var MAX_MERGED_PDF_BYTES = 9 * 1024 * 1024;
 
     function onRequest(context) {
         var request = context.request;
@@ -561,6 +562,7 @@ define([
         var tracking = null;
         var mergedPdf = null;
         var pdfAttached = false;
+        var emailWasSent = false;
 
         try {
             tracking = saveTrackingRecord({
@@ -571,10 +573,10 @@ define([
                 emailBody: emailBody,
                 vendorId: firstVendorId,
                 recipientEmail: emailRecipients[0] || firstVendorEmail || '',
-                statusId: createOnly ? STATUS_GROUPED_ID : (isResend ? STATUS_RESEND_ID : STATUS_SENT_ID),
-                setDateSent: !createOnly,
-                setLastSentDate: !createOnly,
-                incrementRevision: isResend || (createOnly && hasGrouped)
+                statusId: STATUS_GROUPED_ID,
+                setDateSent: false,
+                setLastSentDate: false,
+                incrementRevision: createOnly && hasGrouped
             });
 
             if (createOnly) {
@@ -588,6 +590,10 @@ define([
                 return response;
             }
 
+            var sendDate = new Date();
+            var finalDateSent = tracking.dateSent || sendDate;
+            var finalRevision = tracking.revision + (isResend ? 1 : 0);
+
             mergedPdf = createMergedPoPdf(poIds, firstVendorName, {
                 groupNumber: groupNumber,
                 poNumbers: poNumbers,
@@ -598,9 +604,9 @@ define([
                 emailBody: emailBody,
                 groupMemo: groupMemo,
                 status: isResend ? 'Resend' : 'Sent',
-                dateSent: tracking.dateSentDisplay,
-                lastSentDate: formatDateTime(new Date()),
-                revision: tracking.revision
+                dateSent: formatDateTime(finalDateSent),
+                lastSentDate: formatDateTime(sendDate),
+                revision: finalRevision
             });
 
             pdfAttached = attachGeneratedPdfToTrackingRecord(tracking.id, mergedPdf);
@@ -613,7 +619,9 @@ define([
                 attachments: [mergedPdf],
                 relatedRecords: { entityId: Number(firstVendorId) }
             });
+            emailWasSent = true;
 
+            markTrackingSent(tracking.id, isResend ? STATUS_RESEND_ID : STATUS_SENT_ID, finalDateSent, sendDate, finalRevision);
             stampPurchaseOrders(poIds, groupNumber, customMemoMap, true);
 
             response.updatedIds = poIds;
@@ -629,14 +637,20 @@ define([
                 if (mergedPdf && !pdfAttached) {
                     attachGeneratedPdfToTrackingRecord(tracking.id, mergedPdf);
                 }
-                markTrackingFailed(tracking.id, e);
+                if (!emailWasSent) {
+                    markTrackingFailed(tracking.id, e);
+                }
             }
 
             response.groupNumber = groupNumber;
             response.groupMemo = groupMemo;
             response.customMemoMap = customMemoMap;
             response.actionMode = actionMode;
-            response.errors.push(firstVendorName + ' - ' + e.message);
+            if (emailWasSent) {
+                response.errors.push(firstVendorName + ' - Email was sent, but updating the tracking record or Purchase Orders failed: ' + e.message + '. Please review before retrying.');
+            } else {
+                response.errors.push(firstVendorName + ' - ' + e.message);
+            }
         }
 
         return response;
@@ -679,19 +693,27 @@ define([
     function createMergedPoPdf(poIds, vendorName, summary) {
         var coverPdf = createSummaryPagePdf(summary);
         var pdfSetXml = '<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd"><pdfset>';
+        var estimatedBytes = 0;
 
         if (coverPdf) {
-            pdfSetXml += '<pdf src="data:application/pdf;base64,' + coverPdf.getContents() + '"/>';
+            var coverContents = coverPdf.getContents();
+            estimatedBytes += getBase64ByteSize(coverContents);
+            checkMergedPdfLimit(estimatedBytes);
+            pdfSetXml += '<pdf src="data:application/pdf;base64,' + coverContents + '"/>';
         }
 
         for (var i = 0; i < poIds.length; i++) {
             var poPdf = render.transaction({ entityId: Number(poIds[i]), printMode: render.PrintMode.PDF });
-            pdfSetXml += '<pdf src="data:application/pdf;base64,' + poPdf.getContents() + '"/>';
+            var poContents = poPdf.getContents();
+            estimatedBytes += getBase64ByteSize(poContents);
+            checkMergedPdfLimit(estimatedBytes);
+            pdfSetXml += '<pdf src="data:application/pdf;base64,' + poContents + '"/>';
         }
 
         pdfSetXml += '</pdfset>';
 
         var mergedPdf = render.xmlToPdf({ xmlString: pdfSetXml });
+        checkMergedPdfLimit(getBase64ByteSize(mergedPdf.getContents()));
         mergedPdf.name = cleanFileName('Merged_PO_' + vendorName + '_' + new Date().getTime() + '.pdf');
         return mergedPdf;
     }
@@ -769,6 +791,9 @@ define([
 
         var currentRev = rec.getValue({ fieldId: CREC_REVISION_NUMBER });
         var revision = (currentRev === '' || currentRev === null || currentRev === undefined) ? 0 : parseInt(currentRev, 10);
+        if (isNaN(revision)) {
+            revision = 0;
+        }
         if (values.incrementRevision) {
             revision++;
         }
@@ -777,6 +802,7 @@ define([
         return {
             id: rec.save({ enableSourcing: false, ignoreMandatoryFields: true }),
             revision: revision,
+            dateSent: dateSent,
             dateSentDisplay: formatDateTime(dateSent)
         };
     }
@@ -803,6 +829,22 @@ define([
         var values = {};
         values[CREC_EMAIL_STATUS] = STATUS_FAILED_ID;
         values[CREC_ERROR_LOG] = (errorObj.name ? (errorObj.name + ': ') : '') + (errorObj.message || String(errorObj));
+
+        record.submitFields({
+            type: CUSTOM_REC_TYPE,
+            id: trackingRecordId,
+            values: values,
+            options: { enableSourcing: false, ignoreMandatoryFields: true }
+        });
+    }
+
+    function markTrackingSent(trackingRecordId, statusId, dateSent, lastSentDate, revision) {
+        var values = {};
+        values[CREC_EMAIL_STATUS] = statusId;
+        values[CREC_DATE_SENT] = dateSent || new Date();
+        values[CREC_LAST_SENT_DATE] = lastSentDate || new Date();
+        values[CREC_REVISION_NUMBER] = revision;
+        values[CREC_ERROR_LOG] = '';
 
         record.submitFields({
             type: CUSTOM_REC_TYPE,
@@ -913,11 +955,15 @@ define([
 
     function generateGroupNumber(vendorId) {
         var d = new Date();
-        function pad(value) {
+        function pad(value, length) {
             value = String(value);
-            return value.length < 2 ? '0' + value : value;
+            length = length || 2;
+            while (value.length < length) {
+                value = '0' + value;
+            }
+            return value;
         }
-        return vendorId + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+        return vendorId + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + pad(d.getMilliseconds(), 3) + '_' + pad(Math.floor(Math.random() * 1000), 3);
     }
 
     function runSearch(searchObj, maxRows, callback) {
@@ -952,6 +998,31 @@ define([
             if (emailAddress) recipients.push(emailAddress);
         }
         return recipients;
+    }
+
+    function getBase64ByteSize(value) {
+        var text = String(value || '').replace(/\s/g, '');
+        if (!text) return 0;
+
+        var padding = 0;
+        if (text.slice(-2) === '==') {
+            padding = 2;
+        } else if (text.slice(-1) === '=') {
+            padding = 1;
+        }
+
+        return Math.floor((text.length * 3) / 4) - padding;
+    }
+
+    function checkMergedPdfLimit(sizeBytes) {
+        if (sizeBytes > MAX_MERGED_PDF_BYTES) {
+            throw new Error('The combined PDF is ' + formatFileSize(sizeBytes) + ', which exceeds the 9 MB limit. Please reduce the PO selection and try again.');
+        }
+    }
+
+    function formatFileSize(sizeBytes) {
+        var mb = sizeBytes / (1024 * 1024);
+        return mb.toFixed(2) + ' MB';
     }
 
     function parseJsonObject(text) {
