@@ -30,6 +30,7 @@ define([
     var FIELD_EMAIL_SENT = 'custbody_email_sent';
     var FIELD_GROUP_NUMBER = 'custbody_group_number';
     var FIELD_VENDOR_MEMO = 'custbody_vendor_memo';
+    var FIELD_STOCK_PO = 'custbody_ace_join_stockpo';
 
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
     var CREC_GROUP_NUMBER = 'custrecord_group_number';
@@ -50,6 +51,7 @@ define([
     var STATUS_SENT_ID = 1;
     var STATUS_RESEND_ID = 2;
     var STATUS_FAILED_ID = 3;
+    var STATUS_GROUPED_ID = 4;
 
     var FLD_ACTION = 'custpage_action_mode';
     var FLD_SELECTED_IDS = 'custpage_selected_po_ids';
@@ -64,6 +66,7 @@ define([
     var FLD_EMAIL_SUBJECT = 'custpage_email_subject';
     var FLD_EMAIL_BODY_MEMO = 'custpage_email_body_memo';
     var FLD_GROUP_MEMO = 'custpage_master_memo';
+    var FLD_CUSTOM_MEMO_MAP = 'custpage_custom_memo_map';
     var FLD_AJAX = 'custpage_ajax';
     var FLD_AJAX_ACTION = 'custpage_ajax_action';
 
@@ -91,13 +94,14 @@ define([
             if (isAjax) {
                 var action = params[FLD_AJAX_ACTION] || params[FLD_ACTION] || 'filter';
 
-                if (action === 'send' || action === 'resend') {
+                if (action === 'send' || action === 'resend' || action === 'create_group') {
                     var resultMessage = processSelectedPOs({
                         selectedIdsText: params[FLD_SELECTED_IDS] || '',
                         requestedAction: action,
                         emailSubject: params[FLD_EMAIL_SUBJECT] || '',
                         emailBodyText: params[FLD_EMAIL_BODY_MEMO] || '',
-                        groupMemo: params[FLD_GROUP_MEMO] || ''
+                        groupMemo: params[FLD_GROUP_MEMO] || '',
+                        customMemoMap: parseJsonObject(params[FLD_CUSTOM_MEMO_MAP])
                     });
 
                     writeJson(context, {
@@ -180,6 +184,7 @@ define([
             emailBodyMemo: FLD_EMAIL_BODY_MEMO,
             emailSubject: FLD_EMAIL_SUBJECT,
             masterMemo: FLD_GROUP_MEMO,
+            customMemoMap: FLD_CUSTOM_MEMO_MAP,
             ajax: FLD_AJAX,
             ajaxAction: FLD_AJAX_ACTION
         };
@@ -218,12 +223,13 @@ define([
                 search.createColumn({ name: 'internalid' }),
                 search.createColumn({ name: 'tranid', sort: search.Sort.DESC }),
                 search.createColumn({ name: 'entity' }),
-                search.createColumn({ name: 'datecreated' }),
+                search.createColumn({ name: 'trandate' }),
                 search.createColumn({ name: 'memo' }),
                 search.createColumn({ name: 'amount' }),
                 search.createColumn({ name: FIELD_EMAIL_SENT }),
                 search.createColumn({ name: FIELD_GROUP_NUMBER }),
-                search.createColumn({ name: FIELD_VENDOR_MEMO })
+                search.createColumn({ name: FIELD_VENDOR_MEMO }),
+                search.createColumn({ name: FIELD_STOCK_PO })
             ]
         });
 
@@ -234,15 +240,27 @@ define([
             } catch (e) {
                 row.poUrl = '';
             }
-            row.dateCreated = result.getValue({ name: 'datecreated' }) || '';
+            row.tranDate = result.getValue({ name: 'trandate' }) || '';
             row.amount = result.getValue({ name: 'amount' }) || '';
             data.push(row);
         });
 
-        var dateSentMap = getDateSentMap(data);
+        var groupTrackingMap = getGroupTrackingMap(data);
         for (var i = 0; i < data.length; i++) {
-            if (data[i].groupNumber && dateSentMap[data[i].groupNumber]) {
-                data[i].emailSentDate = dateSentMap[data[i].groupNumber];
+            if (data[i].groupNumber && groupTrackingMap[data[i].groupNumber]) {
+                data[i].emailSentDate = groupTrackingMap[data[i].groupNumber].dateSent || '';
+                data[i].trackingStatus = groupTrackingMap[data[i].groupNumber].statusId || '';
+                data[i].groupMemo = groupTrackingMap[data[i].groupNumber].groupMemo || '';
+            }
+
+            if (String(data[i].trackingStatus) === String(STATUS_FAILED_ID)) {
+                data[i].emailStatus = 'failed';
+            } else if (data[i].emailSent) {
+                data[i].emailStatus = 'sent';
+            } else if (data[i].groupNumber) {
+                data[i].emailStatus = 'grouped';
+            } else {
+                data[i].emailStatus = 'not_sent';
             }
         }
 
@@ -300,11 +318,11 @@ define([
         var searchFilters = [['type', 'anyof', 'PurchOrd'], 'AND', ['mainline', 'is', 'T']];
 
         if (filters.dateFrom && filters.dateTo) {
-            searchFilters.push('AND', ['datecreated', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
+            searchFilters.push('AND', ['trandate', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
         } else if (filters.dateFrom) {
-            searchFilters.push('AND', ['datecreated', 'onorafter', convertHtmlDateToNsDate(filters.dateFrom)]);
+            searchFilters.push('AND', ['trandate', 'onorafter', convertHtmlDateToNsDate(filters.dateFrom)]);
         } else if (filters.dateTo) {
-            searchFilters.push('AND', ['datecreated', 'onorbefore', convertHtmlDateToNsDate(filters.dateTo)]);
+            searchFilters.push('AND', ['trandate', 'onorbefore', convertHtmlDateToNsDate(filters.dateTo)]);
         }
 
         if (filters.vendorId) {
@@ -317,7 +335,22 @@ define([
         if (filters.emailStatus === 'sent') {
             searchFilters.push('AND', [FIELD_EMAIL_SENT, 'is', 'T']);
         } else if (filters.emailStatus === 'not_sent') {
-            searchFilters.push('AND', [FIELD_EMAIL_SENT, 'is', 'F']);
+            searchFilters.push('AND', [FIELD_EMAIL_SENT, 'is', 'F'], 'AND', [FIELD_GROUP_NUMBER, 'isempty', '']);
+        } else if (filters.emailStatus === 'grouped') {
+            searchFilters.push('AND', [FIELD_EMAIL_SENT, 'is', 'F'], 'AND', [FIELD_GROUP_NUMBER, 'isnotempty', '']);
+        } else if (filters.emailStatus === 'failed') {
+            var failedGroups = getGroupNumbersByStatus(STATUS_FAILED_ID);
+            searchFilters.push('AND');
+            if (failedGroups.length) {
+                var failedFilter = [];
+                for (var fg = 0; fg < failedGroups.length; fg++) {
+                    if (fg > 0) failedFilter.push('OR');
+                    failedFilter.push([FIELD_GROUP_NUMBER, 'is', failedGroups[fg]]);
+                }
+                searchFilters.push(failedFilter);
+            } else {
+                searchFilters.push([FIELD_GROUP_NUMBER, 'is', '-NO_FAILED_GROUPS-']);
+            }
         }
 
         if (filters.groupNumber) {
@@ -348,11 +381,28 @@ define([
         return ids;
     }
 
+    function getGroupNumbersByStatus(statusId) {
+        var groups = [];
+        var trackingSearch = search.create({
+            type: CUSTOM_REC_TYPE,
+            filters: [[CREC_EMAIL_STATUS, 'anyof', statusId]],
+            columns: [search.createColumn({ name: CREC_GROUP_NUMBER })]
+        });
+
+        runSearch(trackingSearch, 0, function (result) {
+            var groupNumber = result.getValue({ name: CREC_GROUP_NUMBER }) || '';
+            if (groupNumber) groups.push(groupNumber);
+        });
+
+        return groups;
+    }
+
     function buildPoRow(result, vendorCache) {
         var poId = result.getValue({ name: 'internalid' });
         var vendorId = result.getValue({ name: 'entity' });
         var vendorInfo = getVendorInfo(vendorId, vendorCache);
         var emailSentValue = result.getValue({ name: FIELD_EMAIL_SENT });
+        var stockPoValue = result.getValue({ name: FIELD_STOCK_PO });
 
         return {
             poId: poId,
@@ -361,10 +411,14 @@ define([
             vendorId: vendorId || '',
             vendorName: vendorInfo.name || result.getText({ name: 'entity' }) || '',
             vendorEmail: vendorInfo.email || '',
-            dateCreated: '',
+            tranDate: result.getValue({ name: 'trandate' }) || '',
             emailSentDate: '',
+            emailStatus: '',
+            trackingStatus: '',
+            groupMemo: '',
             memo: result.getValue({ name: 'memo' }) || '',
             vendorMemo: result.getValue({ name: FIELD_VENDOR_MEMO }) || '',
+            stockPo: stockPoValue === true || stockPoValue === 'T',
             groupNumber: result.getValue({ name: FIELD_GROUP_NUMBER }) || '',
             amount: '',
             emailSent: emailSentValue === true || emailSentValue === 'T'
@@ -393,9 +447,12 @@ define([
     }
 
     function processSelectedPOs(options) {
-        var response = { sent: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', groupMemo: '', actionMode: '' };
+        var response = { sent: [], created: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', groupMemo: '', customMemoMap: {}, actionMode: '' };
         var selectedIds = parseIds(options.selectedIdsText);
         var selectedPOs = selectedIds.length ? loadPOsByIds(selectedIds) : [];
+        var requestedAction = options.requestedAction || 'send';
+        var createOnly = requestedAction === 'create_group';
+        var customMemoMap = options.customMemoMap || {};
 
         if (!selectedPOs.length) {
             response.errors.push('Please select at least one Purchase Order.');
@@ -419,24 +476,31 @@ define([
             }
         }
 
+        if (createOnly && hasGrouped) {
+            response.errors.push('Create Group is allowed only for ungrouped Purchase Orders.');
+            return response;
+        }
+
         if (hasGrouped && hasUngrouped) {
             response.errors.push('Grouped and ungrouped Purchase Orders cannot be sent together.');
             return response;
         }
 
-        var actionMode = hasGrouped ? 'resend' : 'send';
-        var isResend = actionMode === 'resend';
         var groupMemo = options.groupMemo || '';
 
-        if (!isResend && !String(groupMemo).replace(/^\s+|\s+$/g, '')) {
-            response.errors.push('Group Memo is required before sending new Purchase Orders.');
+        if ((createOnly || hasUngrouped) && !String(groupMemo).replace(/^\s+|\s+$/g, '')) {
+            response.errors.push('Group Memo is required.');
             return response;
         }
 
-        var poList = isResend ? loadPOsByGroupNumber(groupNumber) : selectedPOs;
+        var poList = hasGrouped ? loadPOsByGroupNumber(groupNumber) : selectedPOs;
         if (!poList.length) {
             response.errors.push('No Purchase Orders found for the selected group.');
             return response;
+        }
+
+        if (!groupNumber) {
+            groupNumber = generateGroupNumber(poList[0].vendorId || '');
         }
 
         var firstVendorId = poList[0].vendorId || '';
@@ -444,6 +508,7 @@ define([
         var firstVendorEmail = poList[0].vendorEmail || '';
         var poIds = [];
         var poNumbers = [];
+        var anyEmailSent = false;
 
         for (var p = 0; p < poList.length; p++) {
             if (String(poList[p].vendorId || '') !== String(firstVendorId || '')) {
@@ -451,24 +516,23 @@ define([
                 return response;
             }
 
-            if (!isResend && (poList[p].emailSent || poList[p].groupNumber)) {
-                response.errors.push('Selected PO already has Email Sent or Group Number. Grouped and ungrouped Purchase Orders cannot be sent together.');
+            if (!hasGrouped && (poList[p].emailSent || poList[p].groupNumber)) {
+                response.errors.push('Selected PO already has Email Sent or Group Number.');
                 return response;
             }
 
+            if (poList[p].emailSent) anyEmailSent = true;
             poIds.push(poList[p].poId);
             poNumbers.push(poList[p].tranId);
         }
 
-        if (!firstVendorEmail) {
+        if (!createOnly && !firstVendorEmail) {
             response.errors.push('Vendor email address is missing for ' + firstVendorName + '.');
             return response;
         }
 
-        if (!isResend) {
-            groupNumber = generateGroupNumber(firstVendorId);
-        }
-
+        var isResend = !createOnly && anyEmailSent;
+        var actionMode = createOnly ? 'create_group' : (isResend ? 'resend' : 'send');
         var tracking = null;
         var mergedPdf = null;
         var pdfAttached = false;
@@ -483,8 +547,22 @@ define([
                 emailSubject: emailSubject,
                 emailBody: emailBody,
                 vendorId: firstVendorId,
-                isResend: isResend
+                statusId: createOnly ? STATUS_GROUPED_ID : (isResend ? STATUS_RESEND_ID : STATUS_SENT_ID),
+                setDateSent: !createOnly,
+                setLastSentDate: !createOnly,
+                incrementRevision: isResend
             });
+
+            if (createOnly) {
+                stampPurchaseOrders(poIds, groupNumber, customMemoMap, false);
+                response.updatedIds = poIds;
+                response.groupNumber = groupNumber;
+                response.groupMemo = groupMemo;
+                response.customMemoMap = customMemoMap;
+                response.actionMode = actionMode;
+                response.created.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Group Number: ' + groupNumber);
+                return response;
+            }
 
             mergedPdf = createMergedPoPdf(poIds, firstVendorName, {
                 groupNumber: groupNumber,
@@ -512,11 +590,12 @@ define([
                 relatedRecords: { entityId: Number(firstVendorId) }
             });
 
-            stampPurchaseOrders(poIds, groupNumber, groupMemo);
+            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true);
 
             response.updatedIds = poIds;
             response.groupNumber = groupNumber;
             response.groupMemo = groupMemo;
+            response.customMemoMap = customMemoMap;
             response.actionMode = actionMode;
             response.sent.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Group Number: ' + groupNumber);
         } catch (e) {
@@ -531,6 +610,7 @@ define([
 
             response.groupNumber = groupNumber;
             response.groupMemo = groupMemo;
+            response.customMemoMap = customMemoMap;
             response.actionMode = actionMode;
             response.errors.push(firstVendorName + ' - ' + e.message);
         }
@@ -556,10 +636,12 @@ define([
                 search.createColumn({ name: 'internalid' }),
                 search.createColumn({ name: 'tranid', sort: sortOrder || search.Sort.ASC }),
                 search.createColumn({ name: 'entity' }),
+                search.createColumn({ name: 'trandate' }),
                 search.createColumn({ name: 'memo' }),
                 search.createColumn({ name: FIELD_EMAIL_SENT }),
                 search.createColumn({ name: FIELD_GROUP_NUMBER }),
-                search.createColumn({ name: FIELD_VENDOR_MEMO })
+                search.createColumn({ name: FIELD_VENDOR_MEMO }),
+                search.createColumn({ name: FIELD_STOCK_PO })
             ]
         });
 
@@ -632,11 +714,14 @@ define([
 
         if (existingId) {
             rec = record.load({ type: CUSTOM_REC_TYPE, id: existingId, isDynamic: true });
-            dateSent = rec.getValue({ fieldId: CREC_DATE_SENT }) || new Date();
+            dateSent = rec.getValue({ fieldId: CREC_DATE_SENT }) || null;
         } else {
             rec = record.create({ type: CUSTOM_REC_TYPE, isDynamic: true });
-            dateSent = new Date();
             rec.setValue({ fieldId: CREC_GROUP_NUMBER, value: values.groupNumber });
+        }
+
+        if (values.setDateSent && !dateSent) {
+            dateSent = new Date();
             rec.setValue({ fieldId: CREC_DATE_SENT, value: dateSent });
         }
 
@@ -644,8 +729,10 @@ define([
         rec.setValue({ fieldId: CREC_MASTER_MEMO, value: values.groupMemo });
         rec.setValue({ fieldId: CREC_EMAIL_SUBJECT, value: values.emailSubject });
         rec.setValue({ fieldId: CREC_EMAIL_BODY, value: values.emailBody });
-        rec.setValue({ fieldId: CREC_LAST_SENT_DATE, value: new Date() });
-        rec.setValue({ fieldId: CREC_EMAIL_STATUS, value: values.isResend ? STATUS_RESEND_ID : STATUS_SENT_ID });
+        if (values.setLastSentDate) {
+            rec.setValue({ fieldId: CREC_LAST_SENT_DATE, value: new Date() });
+        }
+        rec.setValue({ fieldId: CREC_EMAIL_STATUS, value: values.statusId });
         rec.setValue({ fieldId: CREC_ERROR_LOG, value: '' });
 
         if (runtime.getCurrentUser().id > 0) {
@@ -657,7 +744,10 @@ define([
         }
 
         var currentRev = rec.getValue({ fieldId: CREC_REVISION_NUMBER });
-        var revision = (currentRev === '' || currentRev === null || currentRev === undefined) ? 0 : (parseInt(currentRev, 10) + 1);
+        var revision = (currentRev === '' || currentRev === null || currentRev === undefined) ? 0 : parseInt(currentRev, 10);
+        if (values.incrementRevision) {
+            revision++;
+        }
         rec.setValue({ fieldId: CREC_REVISION_NUMBER, value: revision });
 
         return {
@@ -722,23 +812,33 @@ define([
         }
     }
 
-    function stampPurchaseOrders(poIds, groupNumber, groupMemo) {
+    function stampPurchaseOrders(poIds, groupNumber, customMemoMap, markSent) {
+        customMemoMap = customMemoMap || {};
+
         for (var i = 0; i < poIds.length; i++) {
+            var poId = poIds[i];
+            var key = String(poId);
             var values = {};
-            values[FIELD_EMAIL_SENT] = true;
             values[FIELD_GROUP_NUMBER] = groupNumber;
-            values[FIELD_VENDOR_MEMO] = groupMemo || '';
+
+            if (markSent !== null && markSent !== undefined) {
+                values[FIELD_EMAIL_SENT] = !!markSent;
+            }
+
+            if (customMemoMap.hasOwnProperty(key)) {
+                values[FIELD_VENDOR_MEMO] = customMemoMap[key] || '';
+            }
 
             record.submitFields({
                 type: record.Type.PURCHASE_ORDER,
-                id: poIds[i],
+                id: poId,
                 values: values,
                 options: { enableSourcing: false, ignoreMandatoryFields: true }
             });
         }
     }
 
-    function getDateSentMap(poData) {
+    function getGroupTrackingMap(poData) {
         var map = {};
         var groups = [];
         var seen = {};
@@ -763,14 +863,20 @@ define([
             filters: groupFilters,
             columns: [
                 search.createColumn({ name: CREC_GROUP_NUMBER }),
-                search.createColumn({ name: CREC_DATE_SENT })
+                search.createColumn({ name: CREC_DATE_SENT }),
+                search.createColumn({ name: CREC_EMAIL_STATUS }),
+                search.createColumn({ name: CREC_MASTER_MEMO })
             ]
         });
 
         runSearch(trackingSearch, 0, function (result) {
             var groupNumber = result.getValue({ name: CREC_GROUP_NUMBER }) || '';
             if (groupNumber && !map[groupNumber]) {
-                map[groupNumber] = result.getValue({ name: CREC_DATE_SENT }) || '';
+                map[groupNumber] = {
+                    dateSent: result.getValue({ name: CREC_DATE_SENT }) || '',
+                    statusId: result.getValue({ name: CREC_EMAIL_STATUS }) || '',
+                    groupMemo: result.getValue({ name: CREC_MASTER_MEMO }) || ''
+                };
             }
         });
 
@@ -812,6 +918,16 @@ define([
             if (id) ids.push(id);
         }
         return ids;
+    }
+
+    function parseJsonObject(text) {
+        if (!text) return {};
+        try {
+            var value = JSON.parse(text);
+            return value && typeof value === 'object' ? value : {};
+        } catch (e) {
+            return {};
+        }
     }
 
     function convertHtmlDateToNsDate(value) {
