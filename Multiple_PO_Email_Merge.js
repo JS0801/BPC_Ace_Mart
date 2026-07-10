@@ -2,41 +2,21 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  *
- * ===================== FIX CHANGELOG =====================
- * 1) Memo override bug:
- *    - Client: Master Memo autofill was looping over ALL loaded PO_DATA rows
- *      (not just checked/selected ones), silently overwriting the Group Memo
- *      of unrelated or already-sent POs sitting in the filtered table.
- *      Fixed in the HTML/JS template (bindMasterMemo).
- *    - Server: the "else if (masterMemo)" fallback in updatePOAndCustomRecord
- *      would blanket-apply Master Memo to ANY PO returned by the group-number
- *      lookup during resend, even ones not explicitly reviewed/selected this
- *      round. Now that fallback only applies on a brand-new "send", never on
- *      "resend" - resend only writes memo for POs explicitly present in the
- *      groupMemoMap; everything else is left untouched.
+ * PO Email Sender
+ * ----------------
+ * Lets a user filter Purchase Orders, email a merged PDF (cover page + PO
+ * pages) to a vendor, and resend an already-sent group without duplicating
+ * or losing its original Group Number / tracking record.
  *
- * 2) Resend was creating a NEW custom record instead of finding/updating the
- *    existing one:
- *    - Rewrote the lookup into findGroupCustomRecordId() with a trimmed,
- *      defensive search (search.each instead of getRange) plus clear audit
- *      logging so any future "not found" case is visible/diagnosable instead
- *      of silently creating a duplicate.
- *
- * 3) Resend was changing the Group Number:
- *    - The group number was being re-derived from group.poList[0].groupNumber
- *      AFTER the PO list got re-fetched by getPOsByGroupNumber(), which was an
- *      unnecessary (and risky) indirection. The original, validated group
- *      number is now captured ONCE up front (resendGroupNumber), trimmed,
- *      guaranteed non-empty, and used as-is for the entire resend operation -
- *      it is never regenerated or blanked out.
- *
- * 4) Email Sent Date never saved / never showed on the portal:
- *    - A runtime "does this field exist?" pre-check (isEmailSentDateFieldValid)
- *      was gating BOTH the read (search column) and write (submitFields) of
- *      custbody_email_sent_date, and was unreliable, causing it to be
- *      silently skipped. Removed the gate entirely - the field is always
- *      read and always set on initial send.
- * ===========================================================
+ * File is organized top to bottom in the order things actually happen:
+ *   1. Config / constants
+ *   2. Entry point + request routing
+ *   3. Page rendering (building the HTML the user sees)
+ *   4. Loading Purchase Order data for the table/filters
+ *   5. Send / Resend flow (the main action)
+ *   6. PDF building (cover page + merge)
+ *   7. Tracking custom record (customrecord_grouped_pos)
+ *   8. Small shared utilities (kept at the bottom, used everywhere above)
  */
 define([
     'N/ui/serverWidget',
@@ -62,19 +42,23 @@ define([
     log
 ) {
 
+    // ============================================================
+    // 1. CONFIG / CONSTANTS
+    // ============================================================
+
     var TEMP_FOLDER_ID = 8768;
     var PARAM_HTML_FILE_ID = 'custscript_po_email_html_file';
 
-    // --- Core Transaction Fields ---
+    // Purchase Order body fields
     var FIELD_EMAIL_SENT = 'custbody_email_sent';
-    var FIELD_EMAIL_SENT_DATE = 'custbody_email_sent_date'; 
+    var FIELD_EMAIL_SENT_DATE = 'custbody_email_sent_date';
     var FIELD_GROUP_NUMBER = 'custbody_group_number';
-    var FIELD_VENDOR_MEMO = 'custbody_vendor_memo'; 
+    var FIELD_VENDOR_MEMO = 'custbody_vendor_memo';
 
-    // --- Custom Record Fields ---
+    // Tracking custom record: customrecord_grouped_pos
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
     var CREC_GROUP_NUMBER = 'custrecord_group_number';
-    var CREC_PO_NUMBER = 'custrecord_po_number'; 
+    var CREC_PO_NUMBER = 'custrecord_po_number';
     var CREC_MASTER_MEMO = 'custrecord_master_memo';
     var CREC_EMAIL_SUBJECT = 'custrecord_email_subject';
     var CREC_EMAIL_BODY = 'custrecord_email_body';
@@ -83,14 +67,15 @@ define([
     var CREC_SENDER = 'custrecord_sender';
     var CREC_RECIPIENT = 'custrecord_recipient';
     var CREC_VENDOR = 'custrecord_vendor';
-    var CREC_EMAIL_STATUS = 'custrecord_email_status'; 
+    var CREC_EMAIL_STATUS = 'custrecord_email_status';
     var CREC_REVISION_NUMBER = 'custrecord_revision_number';
     var CREC_GENERATED_PDF = 'custrecord_generated_pdf';
 
-    // --- List Option Settings (Verify with your account Custom List setup IDs) ---
-    var STATUS_SENT_ID = 1;   
-    var STATUS_RESEND_ID = 2; 
+    // Custom List option IDs for custrecord_email_status
+    var STATUS_SENT_ID = 1;
+    var STATUS_RESEND_ID = 2;
 
+    // Page/UI field IDs (posted from the HTML template)
     var FLD_ACTION = 'custpage_action_mode';
     var FLD_SELECTED_IDS = 'custpage_selected_po_ids';
     var FLD_PO = 'custpage_filter_po';
@@ -103,8 +88,8 @@ define([
     var FLD_GROUP_NUMBER = 'custpage_filter_group_number';
     var FLD_EMAIL_SUBJECT = 'custpage_email_subject';
     var FLD_EMAIL_BODY_MEMO = 'custpage_email_body_memo';
-    var FLD_MASTER_MEMO = 'custpage_master_memo';       
-    var FLD_GROUP_MEMO_MAP = 'custpage_group_memo_map';  
+    var FLD_MASTER_MEMO = 'custpage_master_memo';
+    var FLD_GROUP_MEMO_MAP = 'custpage_group_memo_map';
     var FLD_AJAX = 'custpage_ajax';
     var FLD_AJAX_ACTION = 'custpage_ajax_action';
 
@@ -112,6 +97,11 @@ define([
     var MAX_PO_OPTION_ROWS = 100;
     var MAX_VENDOR_OPTION_ROWS = 500;
     var EMAIL_SUBJECT_PREFIX = 'Purchase Order';
+
+
+    // ============================================================
+    // 2. ENTRY POINT + REQUEST ROUTING
+    // ============================================================
 
     function onRequest(context) {
         var isAjax = false;
@@ -127,11 +117,14 @@ define([
             var groupMemoMap = parseGroupMemoMap(params[FLD_GROUP_MEMO_MAP]);
             var resultMessage = null;
 
+            // AJAX requests (filtering, send, resend) return JSON and stop here.
             if (isAjax) {
                 handleAjaxRequest(context, params, filters, emailBodyMemo);
                 return;
             }
 
+            // Non-AJAX POST: only happens if the page is submitted the classic
+            // way (fallback). Same send/resend logic as the AJAX path.
             if (request.method === 'POST') {
                 var actionMode = params[FLD_ACTION] || 'filter';
                 if (actionMode === 'send' || actionMode === 'resend') {
@@ -163,8 +156,11 @@ define([
         };
     }
 
+    // Every AJAX call is one of: "filter" (reload the table) or "send"/"resend"
+    // (process the selected POs). Both return JSON, never an HTML page.
     function handleAjaxRequest(context, params, filters, emailBodyMemo) {
         var ajaxAction = params[FLD_AJAX_ACTION] || params[FLD_ACTION] || 'filter';
+
         if (ajaxAction === 'send' || ajaxAction === 'resend') {
             var masterMemo = params[FLD_MASTER_MEMO] || '';
             var emailSubject = params[FLD_EMAIL_SUBJECT] || '';
@@ -194,6 +190,14 @@ define([
         return !!(filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.groupNumber);
     }
 
+
+    // ============================================================
+    // 3. PAGE RENDERING
+    // ============================================================
+    // showPage() builds the NetSuite form, loads the HTML template file from
+    // the File Cabinet, and swaps {{TOKEN}} placeholders for real JSON data
+    // before writing it out as one inline HTML field.
+
     function showPage(context, filters, resultMessage, emailBodyMemo, emailSubject) {
         var form = serverWidget.createForm({ title: ' ' });
 
@@ -203,6 +207,8 @@ define([
         var selectedFld = form.addField({ id: FLD_SELECTED_IDS, type: serverWidget.FieldType.LONGTEXT, label: 'Selected PO IDs' });
         selectedFld.updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
 
+        // Only run the (potentially expensive) PO search if a filter is
+        // actually set and we're not already showing a send/resend result.
         var shouldLoadPoData = hasAnyFilter(filters) && !resultMessage;
         var poData = shouldLoadPoData ? getPurchaseOrders(filters) : [];
         var poOptions = shouldLoadPoData ? getPurchaseOrderOptions(filters) : [];
@@ -232,8 +238,16 @@ define([
         });
     }
 
+    // Loads the HTML template and replaces each {{TOKEN}} with real data as
+    // safe, escaped JSON (so the client script can just read it as a JS
+    // variable - see FIELD_IDS/PO_DATA/etc. at the top of the template).
     function buildPageHtmlFromTemplate(dataObj) {
-        var html = loadHtmlTemplate();
+        var htmlFileId = runtime.getCurrentScript().getParameter({ name: PARAM_HTML_FILE_ID });
+        if (!htmlFileId) {
+            throw new Error('Missing Parameter setup configuration map file ID matching target UI elements.');
+        }
+        var html = file.load({ id: htmlFileId }).getContents();
+
         var fieldIds = {
             action: FLD_ACTION, selectedIds: FLD_SELECTED_IDS, po: FLD_PO, poText: FLD_PO_TEXT,
             vendor: FLD_VENDOR, vendorText: FLD_VENDOR_TEXT, dateFrom: FLD_DATE_FROM, dateTo: FLD_DATE_TO,
@@ -242,49 +256,37 @@ define([
             ajax: FLD_AJAX, ajaxAction: FLD_AJAX_ACTION
         };
 
-        html = replaceTemplateToken(html, 'SUITELET_URL_JSON', safeJson(dataObj.suiteletUrl || ''));
-        html = replaceTemplateToken(html, 'FIELD_IDS_JSON', safeJson(fieldIds));
-        html = replaceTemplateToken(html, 'FILTERS_JSON', safeJson(dataObj.filters || {}));
-        html = replaceTemplateToken(html, 'PO_DATA_JSON', safeJson(dataObj.poData || []));
-        html = replaceTemplateToken(html, 'PO_OPTIONS_JSON', safeJson(dataObj.poOptions || []));
-        html = replaceTemplateToken(html, 'VENDOR_OPTIONS_JSON', safeJson(dataObj.vendorOptions || []));
-        html = replaceTemplateToken(html, 'RESULT_MESSAGE_JSON', safeJson(dataObj.resultMessage || null));
-        html = replaceTemplateToken(html, 'EMAIL_BODY_MEMO_JSON', safeJson(dataObj.emailBodyMemo || ''));
-        html = replaceTemplateToken(html, 'EMAIL_SUBJECT_JSON', safeJson(dataObj.emailSubject || ''));
+        var tokens = {
+            SUITELET_URL_JSON: dataObj.suiteletUrl || '',
+            FIELD_IDS_JSON: fieldIds,
+            FILTERS_JSON: dataObj.filters || {},
+            PO_DATA_JSON: dataObj.poData || [],
+            PO_OPTIONS_JSON: dataObj.poOptions || [],
+            VENDOR_OPTIONS_JSON: dataObj.vendorOptions || [],
+            RESULT_MESSAGE_JSON: dataObj.resultMessage || null,
+            EMAIL_BODY_MEMO_JSON: dataObj.emailBodyMemo || '',
+            EMAIL_SUBJECT_JSON: dataObj.emailSubject || ''
+        };
+
+        for (var token in tokens) {
+            if (tokens.hasOwnProperty(token)) {
+                var jsonValue = JSON.stringify(tokens[token]).replace(/</g, '\\u003C');
+                html = html.split('{{' + token + '}}').join(jsonValue);
+            }
+        }
 
         return html;
     }
 
-    function loadHtmlTemplate() {
-        var htmlFileId = runtime.getCurrentScript().getParameter({ name: PARAM_HTML_FILE_ID });
-        if (!htmlFileId) {
-            throw new Error('Missing Parameter setup configuration map file ID matching target UI elements.');
-        }
-        return file.load({ id: htmlFileId }).getContents();
-    }
 
-    function replaceTemplateToken(html, token, value) {
-        return String(html).split('{{' + token + '}}').join(value);
-    }
+    // ============================================================
+    // 4. LOADING PURCHASE ORDER DATA (for the table, filters, dropdowns)
+    // ============================================================
 
-    function safeJson(value) {
-        return JSON.stringify(value).replace(/</g, '\\u003C');
-    }
-
-    // FIX #4 (corrected): custbody_email_sent_date is not currently usable as a
-    // SEARCH COLUMN in this account (SSS_INVALID_SRCH_COL) - this almost always
-    // means the "Search" checkbox is unchecked on that custom field's
-    // definition (Customization > Lists, Records, & Fields > Transaction Body
-    // Fields > custbody_email_sent_date), or the field ID here doesn't exactly
-    // match what's in the account.
-    //
-    // This guard ONLY affects whether we try to READ the field back via search
-    // (so the script doesn't crash). It does NOT affect writing the field -
-    // record.submitFields writes body fields directly and does not require the
-    // "Search" flag, so the date is still always SET on initial send further
-    // down in updatePOAndCustomRecord(). Once the field's "Search" checkbox is
-    // enabled in NetSuite (or the field ID corrected), this will automatically
-    // start showing up in search results too - no code change needed.
+    // custbody_email_sent_date can only be used as a search column once its
+    // "Search" checkbox is enabled on the field definition. This checks that
+    // once per request and only affects whether we READ it back via search -
+    // writing it (record.submitFields) always happens regardless.
     var _emailSentDateSearchable = null;
     function isEmailSentDateSearchable() {
         if (_emailSentDateSearchable !== null) return _emailSentDateSearchable;
@@ -296,18 +298,14 @@ define([
             }).run().getRange({ start: 0, end: 1 });
             _emailSentDateSearchable = true;
         } catch (e) {
-            log.audit(
-                'custbody_email_sent_date not searchable',
-                'This field cannot be used as a search column in this account (' + e.name + ': ' + e.message + '). ' +
-                'The date is still being SAVED on every send, but it will not appear in the UI table until the field\'s ' +
-                '"Search" checkbox is enabled (Customization > Lists, Records, & Fields > Transaction Body Fields), or the ' +
-                'field ID is corrected if it differs from custbody_email_sent_date.'
-            );
+            log.audit('custbody_email_sent_date not searchable',
+                'Enable the "Search" checkbox on this field to show it in search results. Error: ' + e.name + ': ' + e.message);
             _emailSentDateSearchable = false;
         }
         return _emailSentDateSearchable;
     }
 
+    // Adds the Email Sent Date search column only when it's safe to do so.
     function poBaseColumnsWithDate(baseColumns) {
         if (isEmailSentDateSearchable()) {
             baseColumns.push(search.createColumn({ name: FIELD_EMAIL_SENT_DATE }));
@@ -330,21 +328,10 @@ define([
         context.response.write(JSON.stringify(obj));
     }
 
-    function buildOrFilterExact(fieldId, values) {
-        var filterExpr = [];
-        for (var i = 0; i < values.length; i++) {
-            if (i > 0) filterExpr.push('OR');
-            filterExpr.push([fieldId, 'is', values[i]]);
-        }
-        return filterExpr;
-    }
-
-    // Portal's "Email Sent Date" column is now sourced from the tracking
-    // custom record's custrecord_date_sent (set once, on the very first send,
-    // and never touched again on resend) rather than the PO's own
-    // custbody_email_sent_date field, since that field currently isn't usable
-    // as a search column in this account. Batches ALL group numbers in the
-    // current result set into a single search instead of one lookup per row.
+    // "Email Sent Date" on the portal is sourced from the tracking record's
+    // custrecord_date_sent (set once, on first send only) instead of the
+    // PO's own field, since that field may not be searchable in this
+    // account. All group numbers on screen are looked up in one search.
     function getDateSentMapByGroupNumbers(groupNumbers) {
         var map = {};
         var uniqueGroups = [];
@@ -357,13 +344,18 @@ define([
                 uniqueGroups.push(g);
             }
         }
-
         if (uniqueGroups.length === 0) return map;
 
         try {
+            var orFilter = [];
+            for (var f = 0; f < uniqueGroups.length; f++) {
+                if (f > 0) orFilter.push('OR');
+                orFilter.push([CREC_GROUP_NUMBER, 'is', uniqueGroups[f]]);
+            }
+
             var crecSearch = search.create({
                 type: CUSTOM_REC_TYPE,
-                filters: buildOrFilterExact(CREC_GROUP_NUMBER, uniqueGroups),
+                filters: orFilter,
                 columns: [
                     search.createColumn({ name: CREC_GROUP_NUMBER }),
                     search.createColumn({ name: CREC_DATE_SENT })
@@ -401,6 +393,8 @@ define([
         return data;
     }
 
+    // Main table data - every PO matching the current filters, with vendor
+    // info, PO link, and the real Email Sent Date attached.
     function getPurchaseOrders(filters) {
         var data = [];
         var vendorCache = {};
@@ -410,7 +404,7 @@ define([
             search.createColumn({ name: 'internalid' }),
             search.createColumn({ name: 'tranid', sort: search.Sort.DESC }),
             search.createColumn({ name: 'entity' }),
-            search.createColumn({ name: 'trandate' }),
+            search.createColumn({ name: 'datecreated' }),
             search.createColumn({ name: 'memo' }),
             search.createColumn({ name: 'amount' }),
             search.createColumn({ name: FIELD_EMAIL_SENT }),
@@ -432,7 +426,7 @@ define([
             } catch (linkErr) {
                 rowObj.poUrl = '';
             }
-            rowObj.dateCreated = result.getValue({ name: 'trandate' }) || '';
+            rowObj.dateCreated = result.getValue({ name: 'datecreated' }) || '';
             rowObj.amount = result.getValue({ name: 'amount' }) || '';
             data.push(rowObj);
         });
@@ -440,6 +434,7 @@ define([
         return applyDateSentFromCustomRecord(data);
     }
 
+    // Dropdown options for the PO combo box (id + tranid text only).
     function getPurchaseOrderOptions(filters) {
         var options = [];
         if (!hasAnyFilter(filters)) return options;
@@ -463,6 +458,7 @@ define([
         return options;
     }
 
+    // Dropdown options for the Vendor combo box (all active vendors).
     function getVendorOptions() {
         var options = [];
         var vendorSearch = search.create({
@@ -486,18 +482,21 @@ define([
         return options;
     }
 
+    // Turns the UI filter object into NetSuite search filter syntax.
+    // ignorePoFilter=true is used for the PO dropdown, which should show
+    // every PO regardless of which one is currently typed/selected.
     function buildPurchaseOrderFilters(filters, ignorePoFilter) {
         var searchFilters = [['type', 'anyof', 'PurchOrd'], 'AND', ['mainline', 'is', 'T']];
 
         if (filters.dateFrom && filters.dateTo) {
             searchFilters.push('AND');
-            searchFilters.push(['trandate', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
+            searchFilters.push(['datecreated', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
         } else if (filters.dateFrom) {
             searchFilters.push('AND');
-            searchFilters.push(['trandate', 'onorafter', convertHtmlDateToNsDate(filters.dateFrom)]);
+            searchFilters.push(['datecreated', 'onorafter', convertHtmlDateToNsDate(filters.dateFrom)]);
         } else if (filters.dateTo) {
             searchFilters.push('AND');
-            searchFilters.push(['trandate', 'onorbefore', convertHtmlDateToNsDate(filters.dateTo)]);
+            searchFilters.push(['datecreated', 'onorbefore', convertHtmlDateToNsDate(filters.dateTo)]);
         }
 
         if (filters.vendorId) {
@@ -546,14 +545,76 @@ define([
         return ids;
     }
 
+    // Turns one search result row into the flat PO object the UI table uses.
+    function buildPoDataFromResult(result, vendorCache) {
+        var poId = result.getValue({ name: 'internalid' });
+        var vendorId = result.getValue({ name: 'entity' });
+        var vendorInfo = getVendorInfo(vendorId, vendorCache);
+        var emailSentValue = result.getValue({ name: FIELD_EMAIL_SENT });
+
+        return {
+            poId: poId,
+            poUrl: '',
+            tranId: result.getValue({ name: 'tranid' }) || '',
+            vendorId: vendorId || '',
+            vendorName: vendorInfo.name || result.getText({ name: 'entity' }) || '',
+            vendorEmail: vendorInfo.email || '',
+            dateCreated: '',
+            emailSentDate: isEmailSentDateSearchable() ? (result.getValue({ name: FIELD_EMAIL_SENT_DATE }) || '') : '',
+            memo: result.getValue({ name: 'memo' }) || '',
+            vendorMemo: result.getValue({ name: FIELD_VENDOR_MEMO }) || '',
+            groupNumber: result.getValue({ name: FIELD_GROUP_NUMBER }) || '',
+            amount: '',
+            emailSent: emailSentValue === true || emailSentValue === 'T'
+        };
+    }
+
+    // Looks up (and caches per-request) a vendor's display name + email.
+    function getVendorInfo(vendorId, vendorCache) {
+        if (!vendorId) return { name: '', email: '' };
+        if (vendorCache[vendorId]) return vendorCache[vendorId];
+
+        var info = { name: '', email: '' };
+        try {
+            var lookup = search.lookupFields({
+                type: search.Type.VENDOR,
+                id: vendorId,
+                columns: ['entityid', 'altname', 'email']
+            });
+            info.name = lookup.altname || lookup.entityid || '';
+            info.email = lookup.email || '';
+        } catch (e) {
+            log.error('Vendor Lookup Error', { vendorId: vendorId, error: e });
+        }
+
+        vendorCache[vendorId] = info;
+        return info;
+    }
+
+
+    // ============================================================
+    // 5. SEND / RESEND FLOW
+    // ============================================================
+    // This is the main action. Steps, in order:
+    //   1) Parse + load the selected POs
+    //   2) If resend: lock in the original group number and reload the full
+    //      group by that number (never regenerate/re-derive it)
+    //   3) Validate: one vendor only, vendor has an email, skip already-sent
+    //      POs on a fresh "send"
+    //   4) Save/update the tracking record BEFORE building any PDF
+    //   5) Build the cover page + merge with each PO's PDF
+    //   6) Send the email
+    //   7) Stamp the POs and attach the final PDF to the tracking record
+
     function processSelectedPOs(selectedIdsText, actionMode, emailBodyMemo, masterMemo, groupMemoMap, emailSubject) {
         groupMemoMap = groupMemoMap || {};
         masterMemo = masterMemo || '';
         emailSubject = emailSubject || '';
 
         var response = { sent: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', actionMode: actionMode || '' };
-        var selectedIds = parseSelectedIds(selectedIdsText);
 
+        // --- Step 1: parse + load selected POs ---
+        var selectedIds = parseSelectedIds(selectedIdsText);
         if (selectedIds.length === 0) {
             response.errors.push('Please select at least one Purchase Order.');
             return response;
@@ -565,10 +626,9 @@ define([
             return response;
         }
 
-        // FIX #3: capture the ORIGINAL, validated group number ONCE, up front.
-        // This is the single source of truth used for the entire resend
-        // operation below - it is never re-derived from re-fetched records,
-        // never regenerated, and never allowed to be blank.
+        // --- Step 2: on resend, lock in the ORIGINAL group number once and
+        // reload the full group by it. This value is never regenerated or
+        // re-derived later - it is the single source of truth. ---
         var resendGroupNumber = '';
 
         if (actionMode === 'resend') {
@@ -599,6 +659,7 @@ define([
             }
         }
 
+        // --- Step 3: validate vendor + skip POs that don't belong in this send ---
         var firstVendorId = poList[0].vendorId || '';
         var firstVendorName = poList[0].vendorName || '';
         var firstVendorEmail = poList[0].vendorEmail || '';
@@ -619,11 +680,9 @@ define([
 
         for (var i = 0; i < poList.length; i++) {
             var po = poList[i];
-            if (actionMode === 'send') {
-                if (po.emailSent || po.groupNumber) {
-                    response.skipped.push(po.tranId + ' skipped because it already belongs to Group Number ' + po.groupNumber + '. Select it to resend that group instead.');
-                    continue;
-                }
+            if (actionMode === 'send' && (po.emailSent || po.groupNumber)) {
+                response.skipped.push(po.tranId + ' skipped because it already belongs to Group Number ' + po.groupNumber + '. Select it to resend that group instead.');
+                continue;
             }
             if (!po.vendorId) {
                 response.skipped.push(po.tranId + ' skipped because vendor is missing.');
@@ -640,37 +699,50 @@ define([
         }
 
         try {
-            // FIX #3: reuse the exact original group number on resend - never
-            // regenerate or re-derive it from the (re-fetched) PO list.
-            var groupNumber = (actionMode === 'resend') ? resendGroupNumber : generateGroupNumber(group.vendorId);
+            var isResend = (actionMode === 'resend');
+            var groupNumber = isResend ? resendGroupNumber : generateGroupNumber(group.vendorId);
             var emailBody = buildMemoEmailBody(group.poList, emailBodyMemo);
             var subjectToUse = emailSubject ? emailSubject : (EMAIL_SUBJECT_PREFIX + ' - ' + group.poNumbers.join(', '));
 
-            // Cover/summary page data - mirrors EVERY field tracked on the
-            // customrecord_grouped_pos record except custrecord_generated_pdf
-            // (no need for that one here since this IS the merged PDF).
-            // Rendered as page 1 of the merged PDF, ahead of the PO pages.
+            // --- Step 4: save the tracking record BEFORE any PDF rendering.
+            // Required because (a) renderNativeRecordPdf() needs a real saved
+            // internal ID, and (b) the Advanced PDF/HTML Template reads field
+            // values from the SAVED record, not from the in-memory data here. ---
+            var trackingRecordResult = upsertTrackingRecord(groupNumber, isResend, {
+                poIds: group.poIds,
+                masterMemo: masterMemo,
+                emailSubject: subjectToUse,
+                emailBody: emailBody,
+                vendorId: group.vendorId
+            });
+            var trackingRecordId = trackingRecordResult.id;
+
+            // Mirrors every tracked field except custrecord_generated_pdf.
+            // Used only as a fallback cover page if the native template
+            // render fails - the native template reads straight off the
+            // saved record instead of this object.
             var currentUser = runtime.getCurrentUser();
-            var trackingSnapshot = getExistingTrackingSnapshot(groupNumber, actionMode === 'resend');
             var nowDisplay = formatDateForSummary(new Date());
             var summaryInfo = {
-                groupNumber: groupNumber,                                        // custrecord_group_number
-                poNumbers: group.poNumbers,                                      // custrecord_po_number
-                masterMemo: masterMemo,                                          // custrecord_master_memo
-                emailSubject: subjectToUse,                                      // custrecord_email_subject
-                emailBody: emailBody,                                            // custrecord_email_body
-                dateSentDisplay: trackingSnapshot.dateSent ? formatDateForSummary(trackingSnapshot.dateSent) : nowDisplay, // custrecord_date_sent
-                lastSentDateDisplay: nowDisplay,                                 // custrecord_last_sent_date
-                sentByName: (currentUser && currentUser.name) ? currentUser.name : 'System', // custrecord_sender
-                recipientDisplay: group.vendorName + (group.vendorEmail ? (' <' + group.vendorEmail + '>') : ''), // custrecord_recipient
-                vendorName: group.vendorName,                                    // custrecord_vendor
-                emailStatusDisplay: (actionMode === 'resend') ? 'Resend' : 'Sent', // custrecord_email_status
-                revisionNumber: trackingSnapshot.revision                        // custrecord_revision_number
+                groupNumber: groupNumber,
+                poNumbers: group.poNumbers,
+                masterMemo: masterMemo,
+                emailSubject: subjectToUse,
+                emailBody: emailBody,
+                dateSentDisplay: trackingRecordResult.dateSent ? formatDateForSummary(trackingRecordResult.dateSent) : nowDisplay,
+                lastSentDateDisplay: nowDisplay,
+                sentByName: (currentUser && currentUser.name) ? currentUser.name : 'System',
+                recipientDisplay: group.vendorName + (group.vendorEmail ? (' <' + group.vendorEmail + '>') : ''),
+                vendorName: group.vendorName,
+                emailStatusDisplay: isResend ? 'Resend' : 'Sent',
+                revisionNumber: trackingRecordResult.revision
             };
 
-            // OPTIMIZED: Accelerated PDF building
-            var mergedPdf = createMergedPoPdf(group.poIds, group.vendorName, summaryInfo);
+            // --- Step 5: build the merged PDF (native/summary cover page + PO pages) ---
+            var nativeRecordPdf = renderNativeRecordPdf(summaryInfo, trackingRecordId, group.poIds);
+            var mergedPdf = createMergedPoPdf(group.poIds, group.vendorName, summaryInfo, nativeRecordPdf);
 
+            // --- Step 6: send the email ---
             email.send({
                 author: runtime.getCurrentUser().id,
                 recipients: Number(group.vendorId),
@@ -680,18 +752,9 @@ define([
                 relatedRecords: { entityId: Number(group.vendorId) }
             });
 
-            updatePOAndCustomRecord(group.poIds, groupNumber, {
-                groupMemoMap: groupMemoMap,
-                masterMemo: masterMemo,
-                emailSubject: subjectToUse,
-                emailBody: emailBody,
-                actionMode: actionMode || '',
-                vendorId: group.vendorId,
-                vendorName: group.vendorName,
-                mergedPdf: mergedPdf,
-                firstPoDetails: group.poList[0],
-                poNumbersList: group.poNumbers.join(', ') 
-            });
+            // --- Step 7: stamp the POs + attach the final PDF to the tracking record ---
+            stampPurchaseOrders(group.poIds, groupNumber, groupMemoMap, isResend);
+            attachGeneratedPdfToTrackingRecord(trackingRecordId, mergedPdf);
 
             response.updatedIds = group.poIds;
             response.groupNumber = groupNumber;
@@ -751,54 +814,30 @@ define([
         return data;
     }
 
-    function buildPoDataFromResult(result, vendorCache) {
-        var poId = result.getValue({ name: 'internalid' });
-        var vendorId = result.getValue({ name: 'entity' });
-        var vendorInfo = getVendorInfo(vendorId, vendorCache);
-        var emailSentValue = result.getValue({ name: FIELD_EMAIL_SENT });
+    // Email body priority: typed body > saved Group Memo > native PO memo
+    // (single PO only) > generic fallback text.
+    function buildMemoEmailBody(poList, emailBodyMemo) {
+        if (emailBodyMemo) return convertTextToHtml(emailBodyMemo);
+        if (poList.length > 0 && poList[0].vendorMemo) return convertTextToHtml(poList[0].vendorMemo);
 
-        return {
-            poId: poId,
-            poUrl: '',
-            tranId: result.getValue({ name: 'tranid' }) || '',
-            vendorId: vendorId || '',
-            vendorName: vendorInfo.name || result.getText({ name: 'entity' }) || '',
-            vendorEmail: vendorInfo.email || '',
-            dateCreated: '',
-            emailSentDate: isEmailSentDateSearchable() ? (result.getValue({ name: FIELD_EMAIL_SENT_DATE }) || '') : '',
-            memo: result.getValue({ name: 'memo' }) || '',
-            vendorMemo: result.getValue({ name: FIELD_VENDOR_MEMO }) || '',
-            groupNumber: result.getValue({ name: FIELD_GROUP_NUMBER }) || '',
-            amount: '',
-            emailSent: emailSentValue === true || emailSentValue === 'T'
-        };
-    }
-
-    function getVendorInfo(vendorId, vendorCache) {
-        if (!vendorId) return { name: '', email: '' };
-        if (vendorCache[vendorId]) return vendorCache[vendorId];
-
-        var info = { name: '', email: '' };
-        try {
-            var lookup = search.lookupFields({
-                type: search.Type.VENDOR,
-                id: vendorId,
-                columns: ['entityid', 'altname', 'email']
-            });
-            info.name = lookup.altname || lookup.entityid || '';
-            info.email = lookup.email || '';
-        } catch (e) {
-            log.error('Vendor Lookup Error', { vendorId: vendorId, error: e });
+        if (poList.length === 1) {
+            var body = poList[0].memo || '';
+            return convertTextToHtml(body ? body : 'Please find attached the Purchase Order PDF.');
         }
-
-        vendorCache[vendorId] = info;
-        return info;
+        return '<div style="font-family:Arial, sans-serif; font-size:13px;"><p>Please find attached the Purchase Order PDF.</p></div>';
     }
 
-    /**
-     * HIGHLY OPTIMIZED PDF MERGE
-     * Generates files purely in memory without File Cabinet I/O disk writes
-     */
+    function generateGroupNumber(vendorId) {
+        var d = new Date();
+        var pad = function (value) { value = String(value); return value.length < 2 ? '0' + value : value; };
+        return vendorId + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+    }
+
+
+    // ============================================================
+    // 6. PDF BUILDING (cover page + merge)
+    // ============================================================
+
     function formatDateForSummary(d) {
         try {
             return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
@@ -807,11 +846,28 @@ define([
         }
     }
 
-    function summaryFieldRow(label, value) {
+    // One row of the built-in fallback summary table. If multiline=true,
+    // the value is split into real <br/> line breaks (for the Email Body).
+    function summaryFieldRow(label, value, multiline) {
         if (!value) return '';
+
+        var displayValue;
+        if (multiline) {
+            var plainText = stripHtmlToPlainText(value);
+            if (!plainText) return '';
+            var lines = plainText.split('\n');
+            var escapedLines = [];
+            for (var i = 0; i < lines.length; i++) {
+                escapedLines.push(escapeHtml(lines[i]));
+            }
+            displayValue = escapedLines.join('<br/>');
+        } else {
+            displayValue = escapeHtml(value);
+        }
+
         return '<tr>' +
             '<td style="width:150pt;font-weight:bold;padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapeHtml(label) + '</td>' +
-            '<td style="padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapeHtml(value) + '</td>' +
+            '<td style="padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + displayValue + '</td>' +
             '</tr>';
     }
 
@@ -829,45 +885,23 @@ define([
         return text.replace(/\n{2,}/g, '\n').replace(/^\s+|\s+$/g, '');
     }
 
-    // Like summaryFieldRow, but for values that may span multiple lines
-    // (Email Body) - converts to plain text first, then rebuilds real <br/>
-    // line breaks (each line individually escaped) instead of relying on
-    // literal newline characters, which most PDF/HTML renderers collapse.
-    function summaryMultilineFieldRow(label, htmlOrText) {
-        var plainText = stripHtmlToPlainText(htmlOrText);
-        if (!plainText) return '';
-
-        var lines = plainText.split('\n');
-        var escapedLines = [];
-        for (var i = 0; i < lines.length; i++) {
-            escapedLines.push(escapeHtml(lines[i]));
-        }
-
-        return '<tr>' +
-            '<td style="width:150pt;font-weight:bold;padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapeHtml(label) + '</td>' +
-            '<td style="padding:5pt 8pt;border-bottom:1pt solid #dddddd;vertical-align:top;">' + escapedLines.join('<br/>') + '</td>' +
-            '</tr>';
-    }
-
-    // Builds a one-page PDF/HTML (BFO report XML) summary that mirrors EVERY
-    // field tracked on customrecord_grouped_pos except custrecord_generated_pdf
-    // (not applicable here since this cover page becomes part of that same
-    // merged PDF). Prepended as page 1 of the merged PDF, ahead of the PO
-    // pages.
+    // Built-in one-page cover PDF mirroring every tracked field. Used only
+    // as a fallback if the native record PDF template isn't configured or
+    // fails to render.
     function buildSummaryPageXml(summary) {
         var rows = '';
-        rows += summaryFieldRow('Group Number', summary.groupNumber);                          // custrecord_group_number
-        rows += summaryFieldRow('Purchase Order(s)', (summary.poNumbers || []).join(', '));     // custrecord_po_number
-        rows += summaryFieldRow('Vendor', summary.vendorName);                                  // custrecord_vendor
-        rows += summaryFieldRow('Recipient', summary.recipientDisplay);                         // custrecord_recipient
-        rows += summaryFieldRow('Sender', summary.sentByName);                                  // custrecord_sender
-        rows += summaryFieldRow('Email Subject', summary.emailSubject);                         // custrecord_email_subject
-        rows += summaryMultilineFieldRow('Email Body', summary.emailBody);                      // custrecord_email_body
-        rows += summaryFieldRow('Master Memo', summary.masterMemo);                             // custrecord_master_memo
-        rows += summaryFieldRow('Email Status', summary.emailStatusDisplay);                    // custrecord_email_status
-        rows += summaryFieldRow('Date Sent', summary.dateSentDisplay);                          // custrecord_date_sent
-        rows += summaryFieldRow('Last Sent Date', summary.lastSentDateDisplay);                 // custrecord_last_sent_date
-        rows += summaryFieldRow('Revision Number', String(summary.revisionNumber));             // custrecord_revision_number
+        rows += summaryFieldRow('Group Number', summary.groupNumber);
+        rows += summaryFieldRow('Purchase Order(s)', (summary.poNumbers || []).join(', '));
+        rows += summaryFieldRow('Vendor', summary.vendorName);
+        rows += summaryFieldRow('Recipient', summary.recipientDisplay);
+        rows += summaryFieldRow('Sender', summary.sentByName);
+        rows += summaryFieldRow('Email Subject', summary.emailSubject);
+        rows += summaryFieldRow('Email Body', summary.emailBody, true);
+        rows += summaryFieldRow('Master Memo', summary.masterMemo);
+        rows += summaryFieldRow('Email Status', summary.emailStatusDisplay);
+        rows += summaryFieldRow('Date Sent', summary.dateSentDisplay);
+        rows += summaryFieldRow('Last Sent Date', summary.lastSentDateDisplay);
+        rows += summaryFieldRow('Revision Number', String(summary.revisionNumber));
 
         return '<?xml version="1.0"?>' +
             '<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">' +
@@ -879,39 +913,112 @@ define([
             '</pdf>';
     }
 
+    // Fetches Amount / Memo / Status for each related PO, so the Advanced
+    // PDF/HTML Template can show a real Related Purchase Orders table
+    // instead of just the flattened List/Record display text that
+    // custrecord_po_number gives on its own.
+    function getRelatedPODetails(poInternalIds) {
+        var details = [];
+        if (!poInternalIds || poInternalIds.length === 0) return details;
+
+        try {
+            var poSearch = search.create({
+                type: search.Type.PURCHASE_ORDER,
+                filters: [['internalid', 'anyof', poInternalIds]],
+                columns: ['tranid', 'amount', 'memo', 'status']
+            });
+
+            poSearch.run().each(function (result) {
+                details.push({
+                    id: result.id,
+                    tranid: result.getValue('tranid'),
+                    amount: result.getValue('amount'),
+                    memo: result.getValue('memo'),
+                    status: result.getText('status')
+                });
+                return true;
+            });
+        } catch (e) {
+            log.error('Get Related PO Details Failed', { poInternalIds: poInternalIds, error: e });
+        }
+
+        return details;
+    }
+
+    // Renders the Advanced PDF/HTML Template against the ACTUAL saved
+    // customrecord_grouped_pos record (trackingRecordId). The record must
+    // already be saved with final values (done earlier in upsertTrackingRecord)
+    // since the template reads ${record.custrecord_xxx} from the database.
+    //
+    // poIds (the group's PO internal IDs) is used ONLY to fetch each PO's
+    // amount/memo/status via getRelatedPODetails() above and attach it as a
+    // second data source (alias "poDetails") - custrecord_po_number itself
+    // never carries that data, so the template can't get it any other way.
+    //
+    // Returns null (falling back to the built-in summary page) if the
+    // template ID is blank, trackingRecordId is missing, or rendering fails.
+    // Advanced PDF/HTML Template Script ID, hardcoded per request (the
+    // script parameter route wasn't reliably reaching this deployment).
+    // If you ever need to change templates, just update this string.
+    function renderNativeRecordPdf(summaryInfo, trackingRecordId, poIds) {
+        if (!summaryInfo || !trackingRecordId) return null;
+
+        var templateId = 'CUSTTMPL_CUSTOM_GROUPED_POS_PDFHTML_TEMPLATE';
+        if (!templateId) {
+            log.audit('Native Record PDF', 'Template ID is blank - falling back to built-in summary page.');
+            return null;
+        }
+
+        try {
+            var trackingRec = record.load({ type: CUSTOM_REC_TYPE, id: trackingRecordId, isDynamic: false });
+            var poDetails = getRelatedPODetails(poIds);
+
+            var renderer = render.create();
+            renderer.setTemplateByScriptId(templateId);
+            renderer.addRecord({
+                templateName: 'record', // must match the alias used in the template's FTL, e.g. ${record.custrecord_xxx}
+                record: trackingRec
+            });
+            // addCustomDataSource only supports format: JSON, and the data
+            // string must parse to a JSON OBJECT (starts with "{"), not a
+            // bare array (starts with "["). So the array of PO detail rows
+            // is wrapped under a "list" key here - in the template, read it
+            // as poDetails.list (a sequence), not poDetails directly.
+            renderer.addCustomDataSource({
+                alias: 'poDetails',
+                format: render.DataSource.JSON,
+                data: JSON.stringify({ list: poDetails })
+            });
+
+            return renderer.renderAsPdf();
+        } catch (e) {
+            log.error('Native Record PDF Render Failed - falling back to built-in summary page', e);
+            return null;
+        }
+    }
+
     function createSummaryPagePdf(summary) {
         try {
-            var summaryXml = buildSummaryPageXml(summary);
-            return render.xmlToPdf({ xmlString: summaryXml });
+            return render.xmlToPdf({ xmlString: buildSummaryPageXml(summary) });
         } catch (e) {
             log.error('Summary Page Generation Failed', e);
             return null;
         }
     }
 
-    function createMergedPoPdf(poIds, vendorName, summaryInfo) {
+    // Cover page (native template, or built-in summary as fallback) + one
+    // PDF per PO, merged into a single file.
+    function createMergedPoPdf(poIds, vendorName, summaryInfo, nativeRecordPdf) {
         var pdfSetXml = '<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd"><pdfset>';
 
-        // Prepend the summary/cover page as the very first page, before any
-        // PO pages. If it fails for any reason, log it and continue without
-        // it rather than blocking the whole send.
-        if (summaryInfo) {
-            var summaryPdf = createSummaryPagePdf(summaryInfo);
-            if (summaryPdf) {
-                var summaryBase64 = summaryPdf.getContents();
-                pdfSetXml += '<pdf src="data:application/pdf;base64,' + summaryBase64 + '"/>';
-            }
+        var coverPdf = nativeRecordPdf || (summaryInfo ? createSummaryPagePdf(summaryInfo) : null);
+        if (coverPdf) {
+            pdfSetXml += '<pdf src="data:application/pdf;base64,' + coverPdf.getContents() + '"/>';
         }
 
         for (var i = 0; i < poIds.length; i++) {
-            var poPdf = render.transaction({ 
-                entityId: Number(poIds[i]), 
-                printMode: render.PrintMode.PDF 
-            });
-            
-            // Performance trick: Extract base64 and feed via XML URI schema to bypass file.save() entirely
-            var base64Str = poPdf.getContents();
-            pdfSetXml += '<pdf src="data:application/pdf;base64,' + base64Str + '"/>';
+            var poPdf = render.transaction({ entityId: Number(poIds[i]), printMode: render.PrintMode.PDF });
+            pdfSetXml += '<pdf src="data:application/pdf;base64,' + poPdf.getContents() + '"/>';
         }
         pdfSetXml += '</pdfset>';
 
@@ -920,49 +1027,13 @@ define([
         return mergedPdf;
     }
 
-    function buildMemoEmailBody(poList, emailBodyMemo) {
-        if (emailBodyMemo) return convertTextToHtml(emailBodyMemo);
-        if (poList.length > 0 && poList[0].vendorMemo) return convertTextToHtml(poList[0].vendorMemo);
-        
-        var body = '';
-        if (poList.length === 1) {
-            body = poList[0].memo || '';
-            return convertTextToHtml(body ? body : 'Please find attached the Purchase Order PDF.');
-        }
-        return '<div style="font-family:Arial, sans-serif; font-size:13px;"><p>Please find attached the Purchase Order PDF.</p></div>';
-    }
 
-    // FIX #2: robust, well-logged lookup for the tracking custom record by
-    // Group Number. Uses search.each() (more reliable than getRange) and
-    // trims the group number to avoid whitespace-mismatch misses. Logs
-    // clearly whenever it can't find an existing record on a resend, so this
-    // is diagnosable going forward instead of silently creating duplicates.
-    // Looks up the existing tracking record (on resend only) purely to read
-    // its current Revision Number and original Date Sent, so the summary
-    // page can show the RESULTING values before the actual update happens
-    // later in updatePOAndCustomRecord. Read-only - does not modify anything.
-    function getExistingTrackingSnapshot(groupNumber, isResend) {
-        if (!isResend) {
-            return { revision: 0, dateSent: null };
-        }
+    // ============================================================
+    // 7. TRACKING CUSTOM RECORD (customrecord_grouped_pos)
+    // ============================================================
 
-        var existingId = findGroupCustomRecordId(groupNumber);
-        if (!existingId) {
-            return { revision: 0, dateSent: null };
-        }
-
-        try {
-            var rec = record.load({ type: CUSTOM_REC_TYPE, id: existingId, isDynamic: false });
-            var rev = rec.getValue({ fieldId: CREC_REVISION_NUMBER });
-            var revNum = (rev === '' || rev === null || rev === undefined) ? 0 : parseInt(rev, 10);
-            var dateSent = rec.getValue({ fieldId: CREC_DATE_SENT }) || null;
-            return { revision: revNum + 1, dateSent: dateSent };
-        } catch (e) {
-            log.error('Tracking Snapshot Lookup Failed', { groupNumber: groupNumber, error: e });
-            return { revision: 0, dateSent: null };
-        }
-    }
-
+    // Finds the tracking record by Group Number. Uses search.each() (more
+    // reliable than getRange) and trims whitespace to avoid missed matches.
     function findGroupCustomRecordId(groupNumber) {
         var cleanGroupNumber = String(groupNumber || '').replace(/^\s+|\s+$/g, '');
         if (!cleanGroupNumber) return null;
@@ -988,19 +1059,85 @@ define([
         }
     }
 
-    function updatePOAndCustomRecord(poIds, groupNumber, opts) {
-        var groupMemoMap = opts.groupMemoMap || {};
-        var masterMemo = opts.masterMemo || '';
-        var emailSubject = opts.emailSubject || '';
-        var emailBody = opts.emailBody || '';
-        var isResend = opts.actionMode === 'resend';
-        var vendorId = opts.vendorId;
-        var vendorName = opts.vendorName || '';
-        var mergedPdf = opts.mergedPdf;
-        var firstPoDetails = opts.firstPoDetails;
-        var poNumbersList = opts.poNumbersList || '';
+    // Finds-or-creates the tracking record and writes every field EXCEPT
+    // custrecord_generated_pdf (that file doesn't exist yet - it's built
+    // AFTER this, using this record's own rendered PDF as its cover page).
+    // Saves the record and returns { id, revision, dateSent, wasExisting }.
+    function upsertTrackingRecord(groupNumber, isResend, fieldValues) {
+        var existingId = findGroupCustomRecordId(groupNumber);
+        var rec;
+        var originalDateSent = null;
 
-        // 1. Transactional Loop
+        if (existingId) {
+            log.debug('Grouped PO Tracking', (isResend ? 'Resend' : 'Send') + ': found existing tracking record ' + existingId + ' for group ' + groupNumber + ' - updating it.');
+            rec = record.load({ type: CUSTOM_REC_TYPE, id: existingId, isDynamic: true });
+            originalDateSent = rec.getValue({ fieldId: CREC_DATE_SENT }) || null;
+        } else {
+            if (isResend) {
+                log.audit('Grouped PO Tracking', 'Resend: no existing tracking record found for group ' + groupNumber + ' - creating a new one as fallback.');
+            }
+            rec = record.create({ type: CUSTOM_REC_TYPE, isDynamic: true });
+            rec.setValue({ fieldId: CREC_GROUP_NUMBER, value: groupNumber });
+            rec.setValue({ fieldId: CREC_DATE_SENT, value: new Date() });
+        }
+
+        // custrecord_po_number is a multi-select List/Record field pointing
+        // to the PO transaction record - fieldValues.poIds is every PO's
+        // internal ID in this group.
+        rec.setValue({ fieldId: CREC_PO_NUMBER, value: fieldValues.poIds });
+        rec.setValue({ fieldId: CREC_MASTER_MEMO, value: fieldValues.masterMemo });
+        rec.setValue({ fieldId: CREC_EMAIL_SUBJECT, value: fieldValues.emailSubject });
+        rec.setValue({ fieldId: CREC_EMAIL_BODY, value: fieldValues.emailBody }); // Rich Text field, renders the HTML directly
+        rec.setValue({ fieldId: CREC_LAST_SENT_DATE, value: new Date() });
+
+        if (runtime.getCurrentUser().id > 0) {
+            rec.setValue({ fieldId: CREC_SENDER, value: runtime.getCurrentUser().id });
+        }
+        if (fieldValues.vendorId) {
+            rec.setValue({ fieldId: CREC_RECIPIENT, value: fieldValues.vendorId });
+            rec.setValue({ fieldId: CREC_VENDOR, value: fieldValues.vendorId }); // List/Record field - needs internal ID, not name
+        }
+
+        rec.setValue({ fieldId: CREC_EMAIL_STATUS, value: (isResend ? STATUS_RESEND_ID : STATUS_SENT_ID) });
+
+        var currentRev = rec.getValue({ fieldId: CREC_REVISION_NUMBER });
+        var newRev = (currentRev === '' || currentRev === null || currentRev === undefined) ? 0 : (parseInt(currentRev, 10) + 1);
+        rec.setValue({ fieldId: CREC_REVISION_NUMBER, value: newRev });
+
+        var savedId = rec.save({ enableSourcing: false, ignoreMandatoryFields: true });
+
+        return { id: savedId, revision: newRev, dateSent: originalDateSent, wasExisting: !!existingId };
+    }
+
+    // Attaches the already-built merged PDF to the tracking record AFTER
+    // the email is sent, via submitFields - no second full record.load()
+    // needed since every other field was already saved above.
+    function attachGeneratedPdfToTrackingRecord(trackingRecordId, mergedPdf) {
+        if (!trackingRecordId || !mergedPdf) return;
+        try {
+            mergedPdf.folder = TEMP_FOLDER_ID;
+            mergedPdf.isOnline = true;
+            var attachedFileId = mergedPdf.save();
+
+            var values = {};
+            values[CREC_GENERATED_PDF] = attachedFileId;
+
+            record.submitFields({
+                type: CUSTOM_REC_TYPE,
+                id: trackingRecordId,
+                values: values,
+                options: { enableSourcing: false, ignoreMandatoryFields: true }
+            });
+        } catch (e) {
+            log.error('Attach Generated PDF Failed', { trackingRecordId: trackingRecordId, error: e });
+        }
+    }
+
+    // PO-side stamping loop. The tracking record itself is handled entirely
+    // by upsertTrackingRecord() / attachGeneratedPdfToTrackingRecord() above.
+    function stampPurchaseOrders(poIds, groupNumber, groupMemoMap, isResend) {
+        groupMemoMap = groupMemoMap || {};
+
         for (var i = 0; i < poIds.length; i++) {
             try {
                 var poId = poIds[i];
@@ -1010,23 +1147,19 @@ define([
                 valuesObj[FIELD_EMAIL_SENT] = true;
                 valuesObj[FIELD_GROUP_NUMBER] = groupNumber;
 
-                // FIX #4: always stamp the sent date on the initial send (no
-                // more fragile field-existence pre-check gating this).
+                // Sent date is stamped only on the initial send - resend
+                // never overwrites it.
                 if (!isResend) {
                     valuesObj[FIELD_EMAIL_SENT_DATE] = new Date();
                 }
 
                 if (groupMemoMap.hasOwnProperty(key)) {
-                    // Explicit per-PO memo value captured from the UI for this
-                    // exact PO's own Group Memo box - the ONLY source for
-                    // FIELD_VENDOR_MEMO now. Master Memo is no longer mapped
-                    // into Group Memo at all - it is only kept as a note on
-                    // the tracking custom record (CREC_MASTER_MEMO) below.
+                    // Explicit per-PO memo from that PO's own Group Memo box
+                    // in the UI - the only source for FIELD_VENDOR_MEMO.
                     valuesObj[FIELD_VENDOR_MEMO] = groupMemoMap[key] || '';
                 }
                 // If this PO isn't in groupMemoMap, FIELD_VENDOR_MEMO is left
-                // out of valuesObj entirely, preserving whatever memo already
-                // exists on that PO. Master Memo is never used as a fallback.
+                // out entirely so its existing memo is preserved.
 
                 record.submitFields({
                     type: record.Type.PURCHASE_ORDER,
@@ -1038,104 +1171,12 @@ define([
                 log.error('PO Stamping Loop Failed', { poId: poIds[i], error: e });
             }
         }
-
-        // 2. Custom Record Tracking Block
-        try {
-            // FIX #2 & #3: on resend, look up the existing tracking record by
-            // the (locked-in, trimmed) group number and UPDATE it. Only fall
-            // back to creating a new one if genuinely not found - and log
-            // that clearly so it's diagnosable.
-            var customRecId = isResend ? findGroupCustomRecordId(groupNumber) : null;
-            var customRecordObj = null;
-
-            if (customRecId) {
-                log.debug('Grouped PO Tracking', 'Resend: found existing tracking record ' + customRecId + ' for group ' + groupNumber + ' - updating it.');
-                customRecordObj = record.load({ type: CUSTOM_REC_TYPE, id: customRecId, isDynamic: true });
-            } else {
-                if (isResend) {
-                    log.audit('Grouped PO Tracking', 'Resend: no existing tracking record found for group ' + groupNumber + ' - creating a new one as fallback.');
-                }
-                customRecordObj = record.create({ type: CUSTOM_REC_TYPE, isDynamic: true });
-                customRecordObj.setValue({ fieldId: CREC_GROUP_NUMBER, value: groupNumber });
-                customRecordObj.setValue({ fieldId: CREC_DATE_SENT, value: new Date() });
-            }
-
-            // OPTIMIZED STAMPING VALUE: Safe cast validation fallback wrapper string values
-            // custrecord_po_number was changed to a List/Record type field,
-            // which requires internal IDs, not a text string of PO numbers.
-            // Assumes this is set up as a MULTI-SELECT field pointing to the
-            // Purchase Order/Transaction record - poIds is the array of
-            // internal IDs for every PO in this group.
-            customRecordObj.setValue({ fieldId: CREC_PO_NUMBER, value: poIds });
-            customRecordObj.setValue({ fieldId: CREC_MASTER_MEMO, value: masterMemo });
-            customRecordObj.setValue({ fieldId: CREC_EMAIL_SUBJECT, value: emailSubject });
-            // Store the plain-text version (real line breaks) here rather
-            // than the raw HTML used for the actual email - otherwise this
-            // field shows literal "<br/>" tags instead of separated lines.
-            // The PDF summary already does this same conversion via
-            // stripHtmlToPlainText for the same reason.
-            customRecordObj.setValue({ fieldId: CREC_EMAIL_BODY, value: stripHtmlToPlainText(emailBody) });
-            customRecordObj.setValue({ fieldId: CREC_LAST_SENT_DATE, value: new Date() });
-
-            if (runtime.getCurrentUser().id > 0) {
-                customRecordObj.setValue({ fieldId: CREC_SENDER, value: runtime.getCurrentUser().id });
-            }
-            if (vendorId) {
-                customRecordObj.setValue({ fieldId: CREC_RECIPIENT, value: vendorId });
-                // custrecord_vendor is a List/Record field pointing to the
-                // Vendor record (confirmed by INVALID_FLD_VALUE when a name
-                // string was passed) - it needs the internal ID, not the
-                // display name.
-                customRecordObj.setValue({ fieldId: CREC_VENDOR, value: vendorId });
-            }
-
-            customRecordObj.setValue({ fieldId: CREC_EMAIL_STATUS, value: (isResend ? STATUS_RESEND_ID : STATUS_SENT_ID) });
-
-            var currentRev = customRecordObj.getValue({ fieldId: CREC_REVISION_NUMBER });
-            if (currentRev === '' || currentRev === null || undefined === currentRev) {
-                customRecordObj.setValue({ fieldId: CREC_REVISION_NUMBER, value: 0 });
-            } else {
-                customRecordObj.setValue({ fieldId: CREC_REVISION_NUMBER, value: parseInt(currentRev, 10) + 1 });
-            }
-
-            if (mergedPdf) {
-                mergedPdf.folder = TEMP_FOLDER_ID; 
-                mergedPdf.isOnline = true;
-                var attachedFileId = mergedPdf.save();
-                customRecordObj.setValue({ fieldId: CREC_GENERATED_PDF, value: attachedFileId });
-            }
-
-            customRecordObj.save({ enableSourcing: false, ignoreMandatoryFields: true });
-        } catch (err) {
-            log.error('Grouped PO Custom Tracking Error', { groupNumber: groupNumber, error: err });
-        }
     }
 
-    function getFullFileUrl(fileUrl) {
-        if (!fileUrl) return '';
-        fileUrl = String(fileUrl);
-        if (fileUrl.indexOf('https://') === 0 || fileUrl.indexOf('http://') === 0) return fileUrl;
-        if (fileUrl.indexOf('//') === 0) return 'https:' + fileUrl;
 
-        var domain = url.resolveDomain({ hostType: url.HostType.APPLICATION });
-        if (fileUrl.charAt(0) !== '/') fileUrl = '/' + fileUrl;
-        return 'https://' + domain + fileUrl;
-    }
-
-    function escapeXmlAttribute(value) {
-        if (value === null || value === undefined) return '';
-        return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&apos;');
-    }
-
-    function generateGroupNumber(vendorId) {
-        var d = new Date();
-        return vendorId + '_' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '_' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
-    }
-
-    function pad2(value) {
-        value = String(value);
-        return value.length < 2 ? '0' + value : value;
-    }
+    // ============================================================
+    // 8. SMALL SHARED UTILITIES
+    // ============================================================
 
     function convertHtmlDateToNsDate(value) {
         if (!value) return '';
@@ -1159,6 +1200,7 @@ define([
         return ids;
     }
 
+    // Runs a search page by page, capping the total rows returned.
     function runPagedSearchLimited(searchObj, maxRows, callback) {
         var pagedData = searchObj.runPaged({ pageSize: 1000 });
         var count = 0;
@@ -1172,12 +1214,9 @@ define([
         }
     }
 
+    // Same as above, but returns every row (no cap).
     function runPagedSearch(searchObj, callback) {
-        var pagedData = searchObj.runPaged({ pageSize: 1000 });
-        for (var i = 0; i < pagedData.pageRanges.length; i++) {
-            var page = pagedData.fetch({ index: pagedData.pageRanges[i].index });
-            for (var j = 0; j < page.data.length; j++) { callback(page.data[j]); }
-        }
+        runPagedSearchLimited(searchObj, 0, callback);
     }
 
     function cleanFileName(name) {
