@@ -31,6 +31,8 @@ define([
     var FIELD_GROUP_NUMBER = 'custbody_group_number';
     var FIELD_VENDOR_MEMO = 'custbody_vendor_memo';
     var FIELD_STOCK_PO = 'custbody_ace_join_stockpo';
+    var FIELD_VENDOR_SEND_PO_EMAIL = 'custentity_bpc_send_group_po_email';
+    var FIELD_VENDOR_PO_EMAIL = 'custentity_bpc_po_email_address';
 
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
     var CREC_GROUP_NUMBER = 'custrecord_group_number';
@@ -62,6 +64,7 @@ define([
     var FLD_DATE_FROM = 'custpage_filter_date_from';
     var FLD_DATE_TO = 'custpage_filter_date_to';
     var FLD_EMAIL_STATUS = 'custpage_filter_email_status';
+    var FLD_STOCK_PO = 'custpage_filter_stock_po';
     var FLD_GROUP_NUMBER = 'custpage_filter_group_number';
     var FLD_EMAIL_SUBJECT = 'custpage_email_subject';
     var FLD_EMAIL_BODY_MEMO = 'custpage_email_body_memo';
@@ -88,16 +91,16 @@ define([
                 dateFrom: params[FLD_DATE_FROM] || '',
                 dateTo: params[FLD_DATE_TO] || '',
                 emailStatus: params[FLD_EMAIL_STATUS] || '',
+                stockPo: params[FLD_STOCK_PO] || '',
                 groupNumber: params[FLD_GROUP_NUMBER] || ''
             };
 
             if (isAjax) {
                 var action = params[FLD_AJAX_ACTION] || params[FLD_ACTION] || 'filter';
 
-                if (action === 'send' || action === 'resend' || action === 'create_group') {
+                if (action === 'send' || action === 'resend') {
                     var resultMessage = processSelectedPOs({
                         selectedIdsText: params[FLD_SELECTED_IDS] || '',
-                        requestedAction: action,
                         emailSubject: params[FLD_EMAIL_SUBJECT] || '',
                         emailBodyText: params[FLD_EMAIL_BODY_MEMO] || '',
                         groupMemo: params[FLD_GROUP_MEMO] || '',
@@ -180,6 +183,7 @@ define([
             dateFrom: FLD_DATE_FROM,
             dateTo: FLD_DATE_TO,
             emailStatus: FLD_EMAIL_STATUS,
+            stockPo: FLD_STOCK_PO,
             groupNumber: FLD_GROUP_NUMBER,
             emailBodyMemo: FLD_EMAIL_BODY_MEMO,
             emailSubject: FLD_EMAIL_SUBJECT,
@@ -298,7 +302,9 @@ define([
             filters: [['isinactive', 'is', 'F']],
             columns: [
                 search.createColumn({ name: 'entityid', sort: search.Sort.ASC }),
-                search.createColumn({ name: 'altname' })
+                search.createColumn({ name: 'altname' }),
+                search.createColumn({ name: FIELD_VENDOR_SEND_PO_EMAIL }),
+                search.createColumn({ name: FIELD_VENDOR_PO_EMAIL })
             ]
         });
 
@@ -307,7 +313,9 @@ define([
             var companyName = result.getValue({ name: 'altname' }) || '';
             options.push({
                 id: result.id,
-                text: companyName ? (entityId + ' - ' + companyName) : entityId
+                text: companyName ? (entityId + ' - ' + companyName) : entityId,
+                sendPoEmail: result.getValue({ name: FIELD_VENDOR_SEND_PO_EMAIL }) === true || result.getValue({ name: FIELD_VENDOR_SEND_PO_EMAIL }) === 'T',
+                poEmailAddress: result.getValue({ name: FIELD_VENDOR_PO_EMAIL }) || ''
             });
         });
 
@@ -355,6 +363,12 @@ define([
 
         if (filters.groupNumber) {
             searchFilters.push('AND', [FIELD_GROUP_NUMBER, 'contains', filters.groupNumber]);
+        }
+
+        if (filters.stockPo === 'yes') {
+            searchFilters.push('AND', [FIELD_STOCK_PO, 'is', 'T']);
+        } else if (filters.stockPo === 'no') {
+            searchFilters.push('AND', [FIELD_STOCK_PO, 'is', 'F']);
         }
 
         if (!ignorePoFilter && filters.poId) {
@@ -411,6 +425,7 @@ define([
             vendorId: vendorId || '',
             vendorName: vendorInfo.name || result.getText({ name: 'entity' }) || '',
             vendorEmail: vendorInfo.email || '',
+            vendorSendPoEmail: !!vendorInfo.sendPoEmail,
             tranDate: result.getValue({ name: 'trandate' }) || '',
             emailSentDate: '',
             emailStatus: '',
@@ -429,15 +444,16 @@ define([
         if (!vendorId) return { name: '', email: '' };
         if (vendorCache[vendorId]) return vendorCache[vendorId];
 
-        var info = { name: '', email: '' };
+        var info = { name: '', email: '', sendPoEmail: false };
         try {
             var lookup = search.lookupFields({
                 type: search.Type.VENDOR,
                 id: vendorId,
-                columns: ['entityid', 'altname', 'email']
+                columns: ['entityid', 'altname', FIELD_VENDOR_PO_EMAIL, FIELD_VENDOR_SEND_PO_EMAIL]
             });
             info.name = lookup.altname || lookup.entityid || '';
-            info.email = lookup.email || '';
+            info.email = lookup[FIELD_VENDOR_PO_EMAIL] || '';
+            info.sendPoEmail = lookup[FIELD_VENDOR_SEND_PO_EMAIL] === true || lookup[FIELD_VENDOR_SEND_PO_EMAIL] === 'T';
         } catch (e) {
             log.error('Vendor Lookup Error', { vendorId: vendorId, error: e });
         }
@@ -450,8 +466,6 @@ define([
         var response = { sent: [], created: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', groupMemo: '', customMemoMap: {}, actionMode: '' };
         var selectedIds = parseIds(options.selectedIdsText);
         var selectedPOs = selectedIds.length ? loadPOsByIds(selectedIds) : [];
-        var requestedAction = options.requestedAction || 'send';
-        var createOnly = requestedAction === 'create_group';
         var customMemoMap = options.customMemoMap || {};
 
         if (!selectedPOs.length) {
@@ -476,11 +490,6 @@ define([
             }
         }
 
-        if (createOnly && hasGrouped) {
-            response.errors.push('Create Group is allowed only for ungrouped Purchase Orders.');
-            return response;
-        }
-
         if (hasGrouped && hasUngrouped) {
             response.errors.push('Grouped and ungrouped Purchase Orders cannot be sent together.');
             return response;
@@ -488,7 +497,7 @@ define([
 
         var groupMemo = options.groupMemo || '';
 
-        if ((createOnly || hasUngrouped) && !String(groupMemo).replace(/^\s+|\s+$/g, '')) {
+        if (hasUngrouped && !String(groupMemo).replace(/^\s+|\s+$/g, '')) {
             response.errors.push('Group Memo is required.');
             return response;
         }
@@ -506,6 +515,8 @@ define([
         var firstVendorId = poList[0].vendorId || '';
         var firstVendorName = poList[0].vendorName || '';
         var firstVendorEmail = poList[0].vendorEmail || '';
+        var vendorSendPoEmail = !!poList[0].vendorSendPoEmail;
+        var emailRecipients = parseEmailRecipients(firstVendorEmail);
         var poIds = [];
         var poNumbers = [];
         var anyEmailSent = false;
@@ -526,12 +537,13 @@ define([
             poNumbers.push(poList[p].tranId);
         }
 
-        if (!createOnly && !firstVendorEmail) {
+        if (vendorSendPoEmail && !emailRecipients.length) {
             response.errors.push('Vendor email address is missing for ' + firstVendorName + '.');
             return response;
         }
 
-        var isResend = !createOnly && anyEmailSent;
+        var isResend = anyEmailSent;
+        var createOnly = !vendorSendPoEmail;
         var actionMode = createOnly ? 'create_group' : (isResend ? 'resend' : 'send');
         var tracking = null;
         var mergedPdf = null;
@@ -550,7 +562,7 @@ define([
                 statusId: createOnly ? STATUS_GROUPED_ID : (isResend ? STATUS_RESEND_ID : STATUS_SENT_ID),
                 setDateSent: !createOnly,
                 setLastSentDate: !createOnly,
-                incrementRevision: isResend
+                incrementRevision: isResend || (createOnly && hasGrouped)
             });
 
             if (createOnly) {
@@ -560,7 +572,7 @@ define([
                 response.groupMemo = groupMemo;
                 response.customMemoMap = customMemoMap;
                 response.actionMode = actionMode;
-                response.created.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Group Number: ' + groupNumber);
+                response.created.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Group Number: ' + groupNumber + ' | Email not sent because vendor is not enabled for grouped PO email.');
                 return response;
             }
 
@@ -568,7 +580,7 @@ define([
                 groupNumber: groupNumber,
                 poNumbers: poNumbers,
                 vendorName: firstVendorName,
-                recipient: firstVendorName + (firstVendorEmail ? (' <' + firstVendorEmail + '>') : ''),
+                recipient: firstVendorName + (emailRecipients.length ? (' <' + emailRecipients.join(', ') + '>') : ''),
                 sender: runtime.getCurrentUser().name || 'System',
                 emailSubject: emailSubject,
                 emailBody: emailBody,
@@ -583,7 +595,7 @@ define([
 
             email.send({
                 author: runtime.getCurrentUser().id,
-                recipients: Number(firstVendorId),
+                recipients: emailRecipients,
                 subject: emailSubject,
                 body: emailBody,
                 attachments: [mergedPdf],
@@ -884,7 +896,7 @@ define([
     }
 
     function hasAnyFilter(filters) {
-        return !!(filters && (filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.groupNumber));
+        return !!(filters && (filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.stockPo || filters.groupNumber));
     }
 
     function generateGroupNumber(vendorId) {
@@ -918,6 +930,16 @@ define([
             if (id) ids.push(id);
         }
         return ids;
+    }
+
+    function parseEmailRecipients(text) {
+        var recipients = [];
+        var parts = text ? String(text).split(/[;,]/) : [];
+        for (var i = 0; i < parts.length; i++) {
+            var emailAddress = String(parts[i] || '').replace(/^\s+|\s+$/g, '');
+            if (emailAddress) recipients.push(emailAddress);
+        }
+        return recipients;
     }
 
     function parseJsonObject(text) {
