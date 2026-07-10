@@ -570,6 +570,7 @@ define([
                 emailSubject: emailSubject,
                 emailBody: emailBody,
                 vendorId: firstVendorId,
+                recipientEmail: emailRecipients[0] || firstVendorEmail || '',
                 statusId: createOnly ? STATUS_GROUPED_ID : (isResend ? STATUS_RESEND_ID : STATUS_SENT_ID),
                 setDateSent: !createOnly,
                 setLastSentDate: !createOnly,
@@ -761,8 +762,8 @@ define([
         if (runtime.getCurrentUser().id > 0) {
             rec.setValue({ fieldId: CREC_SENDER, value: runtime.getCurrentUser().id });
         }
+        rec.setValue({ fieldId: CREC_RECIPIENT, value: values.recipientEmail || '' });
         if (values.vendorId) {
-            rec.setValue({ fieldId: CREC_RECIPIENT, value: values.vendorId });
             rec.setValue({ fieldId: CREC_VENDOR, value: values.vendorId });
         }
 
