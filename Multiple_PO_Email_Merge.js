@@ -497,7 +497,7 @@ define([
 
         var groupMemo = options.groupMemo || '';
 
-        if (hasUngrouped && !String(groupMemo).replace(/^\s+|\s+$/g, '')) {
+        if (!String(groupMemo).replace(/^\s+|\s+$/g, '')) {
             response.errors.push('Group Memo is required.');
             return response;
         }
@@ -517,6 +517,8 @@ define([
         var firstVendorEmail = poList[0].vendorEmail || '';
         var vendorSendPoEmail = !!poList[0].vendorSendPoEmail;
         var emailRecipients = parseEmailRecipients(firstVendorEmail);
+        var emailBody = options.emailBodyText || '';
+        var emailSubject = options.emailSubject || '';
         var poIds = [];
         var poNumbers = [];
         var anyEmailSent = false;
@@ -537,9 +539,20 @@ define([
             poNumbers.push(poList[p].tranId);
         }
 
-        if (vendorSendPoEmail && !emailRecipients.length) {
-            response.errors.push('Vendor email address is missing for ' + firstVendorName + '.');
-            return response;
+        if (vendorSendPoEmail) {
+            if (!emailRecipients.length) {
+                response.errors.push('Vendor email address is missing for ' + firstVendorName + '.');
+                return response;
+            }
+
+            var missingEmailFields = [];
+            if (!String(emailSubject).replace(/^\s+|\s+$/g, '')) missingEmailFields.push('Email Subject');
+            if (!hasHtmlContent(emailBody)) missingEmailFields.push('Email Body');
+
+            if (missingEmailFields.length) {
+                response.errors.push(missingEmailFields.join(' and ') + (missingEmailFields.length > 1 ? ' are' : ' is') + ' required before sending email.');
+                return response;
+            }
         }
 
         var isResend = anyEmailSent;
@@ -548,8 +561,6 @@ define([
         var tracking = null;
         var mergedPdf = null;
         var pdfAttached = false;
-        var emailBody = options.emailBodyText || '';
-        var emailSubject = options.emailSubject || '';
 
         try {
             tracking = saveTrackingRecord({
@@ -995,6 +1006,21 @@ define([
             lines[i] = escapeHtml(lines[i]);
         }
         return lines.join('<br/>');
+    }
+
+    function hasHtmlContent(value) {
+        return !!String(value || '')
+            .replace(/<br\s*\/?>/gi, ' ')
+            .replace(/<\/(p|div|li|tr|h[1-6])>/gi, ' ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;|&#160;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;/gi, "'")
+            .replace(/\s+/g, ' ')
+            .replace(/^\s+|\s+$/g, '');
     }
 
     function escapeHtml(value) {
