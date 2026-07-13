@@ -1,0 +1,214 @@
+<?xml version="1.0"?>
+<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">
+<pdf>
+  <head>
+    <style>
+      * { font-family: Helvetica, Arial, sans-serif; }
+      body { font-size: 10pt; color: #222222; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 4pt 6pt; vertical-align: top; }
+
+      .header-table td { padding: 0; }
+      .company-name { font-size: 14pt; font-weight: bold; color: #222222; }
+      .company-address { font-size: 8.5pt; color: #666666; line-height: 1.4; }
+      .doc-title { font-size: 22pt; font-weight: bold; color: #2c3e50; text-align: right; }
+      .doc-subtitle { font-size: 9pt; color: #888888; text-align: right; }
+
+      .divider { border-bottom: 2pt solid #2c3e50; margin-top: 8pt; margin-bottom: 12pt; }
+
+      .field-label { font-size: 8pt; font-weight: bold; color: #888888; text-transform: uppercase; }
+      .field-value { font-size: 10pt; color: #222222; }
+
+      .section-title { font-size: 10.5pt; font-weight: bold; color: #2c3e50; padding-top: 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #dddddd; }
+      .memo-box { font-size: 9.5pt; color: #333333; padding-top: 6pt; padding-bottom: 6pt; line-height: 1.4; }
+
+      .po-table th { font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #666666; background-color: #f2f2f2; padding: 6pt; text-align: left; border-bottom: 1pt solid #dddddd; }
+      .po-table td { font-size: 9.5pt; padding: 6pt; border-bottom: 0.5pt solid #eeeeee; }
+      .po-count { font-size: 8.5pt; color: #888888; padding-top: 4pt; }
+    </style>
+  </head>
+  <body size="Letter" padding="0.5in 0.6in">
+
+    <!-- ===================== NORMALIZE RELATED PO LIST ===================== -->
+    <!-- custrecord_po_number (a multi-select List/Record pointing at
+         Purchase Order transactions) does NOT come through as a real
+         per-item sequence in this rendering context - it's a single
+         flattened display string (e.g. "Purchase Order #PO400 Purchase
+         Order #PO401"), even though FreeMarker may report it as a
+         length-1 sequence wrapping that whole string. So: always coerce
+         to a plain string first, then split it apart ourselves on the
+         repeating "Purchase Order #" prefix rather than trusting
+         ?is_sequence/.text - this was the actual cause of both PO rows
+         getting merged into one. -->
+    <#assign poRawText = "">
+    <#if record.custrecord_po_number?is_sequence>
+      <#list record.custrecord_po_number as poItem>
+        <#assign poRawText = poRawText + (poItem.text!poItem?string) + " ">
+      </#list>
+    <#elseif record.custrecord_po_number?has_content>
+      <#assign poRawText = record.custrecord_po_number?string>
+    </#if>
+    <#assign poRawText = poRawText?trim>
+
+    <#assign relatedPOs = []>
+    <#if poRawText?has_content>
+      <#list poRawText?split("(?=Purchase Order #)", "r") as poChunk>
+        <#if poChunk?trim?has_content>
+          <#assign relatedPOs = relatedPOs + [ poChunk?trim ]>
+        </#if>
+      </#list>
+    </#if>
+
+    <!-- ===================== PO DETAILS LOOKUP ===================== -->
+    <!-- poDetails is attached separately by the server script (see
+         po_summary_render.js -> renderer.addCustomDataSource), since a
+         List/Record field like custrecord_po_number only ever exposes
+         display text/id - never amount, memo, or status. Those live on
+         the Purchase Order transaction itself and have to be fetched via
+         search in the script, then handed to this template as its own
+         data source. Build a lookup keyed by PO number (tranid) so we can
+         match it against the parsed relatedPOs labels above. -->
+    <#assign poDetailsByTranId = {}>
+    <#if poDetails?? && poDetails?is_sequence>
+      <#list poDetails as pd>
+        <#assign poDetailsByTranId = poDetailsByTranId + { pd.tranid?string: pd }>
+      </#list>
+    </#if>
+
+    <!-- ===================== HEADER ===================== -->
+    <table class="header-table">
+      <tr>
+        <td style="width: 60%;">
+          <#if companyInformation.logoUrl?has_content>
+            <img src="${companyInformation.logoUrl}" style="max-height: 46pt; margin-bottom: 6pt;" />
+          </#if>
+          <div class="company-name">${companyInformation.companyName?html}</div>
+          <div class="company-address">${companyInformation.addressText?html}</div>
+        </td>
+        <td style="width: 40%;">
+          <div class="doc-title">PO Summary</div>
+          <div class="doc-subtitle">Purchase Order Group Email</div>
+        </td>
+      </tr>
+    </table>
+    <div class="divider"></div>
+
+    <!-- ===================== HEADER DETAILS GRID ===================== -->
+    <!-- IMPORTANT: no colspan anywhere in this table - this engine appears
+         to silently drop an entire table (not just the offending row) if
+         colspan is used, which is what caused this whole section to
+         disappear last time. Every row uses the same 4 equal columns;
+         empty cells are left blank rather than spanned. rowspan is fine
+         (used safely elsewhere) - it's specifically colspan to avoid. -->
+    <table>
+      <tr>
+        <td style="width: 25%;">
+          <span class="field-label">Group Number</span><br/>
+          <span class="field-value">${record.custrecord_group_number?html}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="field-label">Email Status</span><br/>
+          <span class="field-value">${record.custrecord_email_status?html}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="field-label">Revision</span><br/>
+          <span class="field-value">${record.custrecord_revision_number?html}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="field-label">Purchase Orders</span><br/>
+          <span class="field-value">${relatedPOs?size}</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <span class="field-label">Vendor</span><br/>
+          <span class="field-value">${record.custrecord_vendor?html}</span>
+        </td>
+        <td>
+          <span class="field-label">Recipient</span><br/>
+          <span class="field-value">${record.custrecord_recipient?html}</span>
+        </td>
+        <td>
+          <span class="field-label">Sender</span><br/>
+          <span class="field-value">${record.custrecord_sender?html}</span>
+        </td>
+        <td>
+          <span class="field-label">Email Subject</span><br/>
+          <span class="field-value">${record.custrecord_email_subject?html}</span>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <span class="field-label">Date Sent</span><br/>
+          <span class="field-value">${record.custrecord_date_sent?html}</span>
+        </td>
+        <td>
+          <span class="field-label">Last Sent Date</span><br/>
+          <span class="field-value">${record.custrecord_last_sent_date?html}</span>
+        </td>
+        <td></td>
+        <td></td>
+      </tr>
+    </table>
+
+    <!-- ===================== MASTER MEMO ===================== -->
+    <#if record.custrecord_master_memo?has_content>
+      <div class="section-title">Master Memo</div>
+      <div class="memo-box">${record.custrecord_master_memo?html}</div>
+    </#if>
+
+    <!-- ===================== EMAIL BODY ===================== -->
+    <!-- Rich Text field - already comes through as valid escaped HTML with
+         real <br/> line breaks from the Suitelet, so render it directly
+         rather than running it through ?html again (which would
+         double-escape it and break the <br/> tags). -->
+    <#if record.custrecord_email_body?has_content>
+      <div class="section-title">Email Body</div>
+      <div class="memo-box">${record.custrecord_email_body}</div>
+    </#if>
+
+    <!-- ===================== RELATED PURCHASE ORDERS ===================== -->
+    <div class="section-title">Related Purchase Orders</div>
+    <#if relatedPOs?has_content>
+      <table class="po-table">
+        <thead>
+          <tr>
+            <th style="width: 6%;">#</th>
+            <th style="width: 20%;">PO Number</th>
+            <th style="width: 16%;">Status</th>
+            <th style="width: 16%;">Amount</th>
+            <th>Memo</th>
+          </tr>
+        </thead>
+        <tbody>
+          <#assign totalAmount = 0>
+          <#list relatedPOs as po>
+            <!-- po is the raw label, e.g. "Purchase Order #PO400" - strip
+                 the prefix to get just the tranid ("PO400") for lookup -->
+            <#assign poTranId = po?replace("Purchase Order #", "")?trim>
+            <#assign detail = poDetailsByTranId[poTranId]!{}>
+            <#if detail.amount?? && detail.amount?is_number>
+              <#assign totalAmount = totalAmount + detail.amount>
+            <#elseif detail.amount?? && detail.amount?has_content>
+              <#assign totalAmount = totalAmount + detail.amount?number>
+            </#if>
+            <tr>
+              <td>${po_index + 1}</td>
+              <td>${poTranId?html}</td>
+              <td>${(detail.status?html)!""}</td>
+              <td><#if detail.amount??>${detail.amount?html}</#if></td>
+              <td>${(detail.memo?html)!""}</td>
+            </tr>
+          </#list>
+        </tbody>
+      </table>
+      <div class="po-count">
+        ${relatedPOs?size} Purchase Order<#if relatedPOs?size gt 1>s</#if> included in this send.
+        <#if totalAmount gt 0> &mdash; Total: ${totalAmount?string(",##0.00")}</#if>
+      </div>
+    <#else>
+      <div class="memo-box">No related Purchase Orders found.</div>
+    </#if>
+
+  </body>
+</pdf>
