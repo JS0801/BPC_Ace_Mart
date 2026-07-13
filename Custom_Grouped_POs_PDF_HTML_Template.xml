@@ -64,7 +64,11 @@
       </#list>
     </#if>
 
-    <!-- ===================== HEADER ===================== -->
+    <#assign poCount = 0>
+
+<#assign poList = record.custrecord_po_number?string?split(",")>
+
+
     <table class="header-table">
       <tr>
         <td style="width: 60%;" rowspan = "6">
@@ -90,11 +94,13 @@
       </tr>
       <tr>
         <td><b>Memo</b></td>
-        <td>v${record.custrecord_master_memo}</td>
+        <td>${record.custrecord_master_memo}</td>
       </tr>
       <tr>
         <td><b>No. of POs</b></td>
-        <td>v${record.custrecord_po_number}</td>
+        <td>
+  ${poList?size}
+</td>
       </tr>
     </table>
 
