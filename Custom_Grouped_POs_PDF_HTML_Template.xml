@@ -74,7 +74,7 @@
           <b>${companyInformation.legalname}</b><br/>
           ${companyInformation.addressText}
         </td>
-        <td colspan = "2" font-size = "12pts"><b>Group Summary</b></td>
+        <td colspan = "2" font-size = "12pt"><b>Group Summary</b></td>
       </tr>
     </table>
 
