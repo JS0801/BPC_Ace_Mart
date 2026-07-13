@@ -80,7 +80,7 @@
       <tr>
         <td colspan = "2"></td>
         <td>Vendor</td>
-        <td>${record.custrecord_vendor}</td>
+        <td>${record.custrecord_vendor.name}</td>
       </tr>
     </table>
 
