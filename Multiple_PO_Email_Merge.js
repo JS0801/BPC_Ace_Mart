@@ -74,8 +74,8 @@ define([
     var FLD_AJAX_ACTION = 'custpage_ajax_action';
 
     var MAX_UI_PO_ROWS = 500;
-    var MAX_PO_OPTION_ROWS = 100;
-    var MAX_VENDOR_OPTION_ROWS = 500;
+    var MAX_PO_OPTION_ROWS = 10000;
+    var MAX_VENDOR_OPTION_ROWS = 10000;
     var MAX_MERGED_PDF_BYTES = 9 * 1024 * 1024;
 
     function onRequest(context) {
