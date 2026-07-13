@@ -71,7 +71,7 @@
 
     <table class="header-table">
       <tr>
-        <td style="width: 60%;" rowspan = "6">
+        <td style="width: 60%;" rowspan = "5">
           <#if companyInformation.logoUrl?has_content>
             <img src="${companyInformation.logoUrl}" style="height: 40pt; width: 70pt; margin-bottom: 6pt;" />
           </#if>
