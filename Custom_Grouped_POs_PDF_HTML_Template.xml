@@ -103,47 +103,68 @@
     </table>
 
     <!-- ===================== RELATED PURCHASE ORDERS ===================== -->
-    <div class="section-title">Related Purchase Orders</div>
-    <#if relatedPOs?has_content>
-      <table class="po-table">
-        <thead>
-          <tr>
-            <th style="width: 6%;">#</th>
-            <th style="width: 20%;">PO Number</th>
-            <th style="width: 16%;">Status</th>
-            <th style="width: 16%;">Amount</th>
-            <th>Memo</th>
-          </tr>
-        </thead>
-        <tbody>
-          <#assign totalAmount = 0>
-          <#list relatedPOs as po>
-            <!-- po is the raw label, e.g. "Purchase Order #PO400" - strip
-                 the prefix to get just the tranid ("PO400") for lookup -->
-            <#assign poTranId = po?replace("Purchase Order #", "")?trim>
-            <#assign detail = poDetailsByTranId[poTranId]!{}>
-            <#if detail.amount?? && detail.amount?is_number>
-              <#assign totalAmount = totalAmount + detail.amount>
-            <#elseif detail.amount?? && detail.amount?has_content>
-              <#assign totalAmount = totalAmount + detail.amount?number>
-            </#if>
-            <tr>
-              <td>${po_index + 1}</td>
-              <td>${poTranId}</td>
-              <td>${(detail.status)!""}</td>
-              <td><#if detail.amount??>${detail.amount}</#if></td>
-              <td>${(detail.memo)!""}</td>
-            </tr>
-          </#list>
-        </tbody>
-      </table>
-      <div class="po-count">
-        ${relatedPOs?size} Purchase Order<#if relatedPOs?size gt 1>s</#if> included in this send.
-        <#if totalAmount gt 0> &mdash; Total: ${totalAmount?string(",##0.00")}</#if>
-      </div>
-    <#else>
-      <div class="memo-box">No related Purchase Orders found.</div>
+ <div class="section-title">Related Purchase Orders</div>
+
+<#assign poDetailsJson = (record.custrecord_bpc_po_details!"")?trim>
+<#assign poDetails = {}>
+<#if poDetailsJson?has_content>
+  <#attempt>
+    <#assign poDetails = poDetailsJson?eval>
+  <#recover>
+    <#assign poDetails = {}>
+  </#attempt>
+</#if>
+
+<#assign relatedPOs = poDetails.purchaseOrders![]>
+
+<#if relatedPOs?has_content>
+  <table class="po-table">
+    <thead>
+      <tr>
+        <th style="width: 6%;">#</th>
+        <th style="width: 18%;">PO Number</th>
+        <th style="width: 14%;">Date</th>
+        <th style="width: 12%;">Lines</th>
+        <th style="width: 16%;">Amount</th>
+        <th>Memo</th>
+      </tr>
+    </thead>
+    <tbody>
+      <#assign totalAmount = 0>
+
+      <#list relatedPOs as po>
+        <#assign amount = 0>
+        <#if po.amount?? && po.amount?has_content>
+          <#if po.amount?is_number>
+            <#assign amount = po.amount>
+          <#else>
+            <#assign amount = po.amount?replace(",", "")?number>
+          </#if>
+        </#if>
+
+        <#assign totalAmount = totalAmount + amount>
+
+        <tr>
+          <td>${po_index + 1}</td>
+          <td>${po.poNumber!""}</td>
+          <td>${po.tranDate!""}</td>
+          <td>${po.lineCount!0}</td>
+          <td>${amount?string(",##0.00")}</td>
+          <td>${po.vendorMemo!""}</td>
+        </tr>
+      </#list>
+    </tbody>
+  </table>
+
+  <div class="po-count">
+    ${relatedPOs?size} Purchase Order<#if relatedPOs?size gt 1>s</#if> included in this send.
+    <#if totalAmount gt 0>
+      &mdash; Total: ${totalAmount?string(",##0.00")}
     </#if>
+  </div>
+<#else>
+  <div class="memo-box">No related Purchase Orders found.</div>
+</#if>
 
   </body>
 </pdf>
