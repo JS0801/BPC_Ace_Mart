@@ -124,9 +124,9 @@
         <th style="width: 6%;">#</th>
         <th style="width: 18%;">PO Number</th>
         <th style="width: 14%;">Date</th>
+        <th>Memo</th>
         <th style="width: 12%;">Lines</th>
         <th style="width: 16%;">Amount</th>
-        <th>Memo</th>
       </tr>
     </thead>
     <tbody>
@@ -148,9 +148,9 @@
           <td>${po_index + 1}</td>
           <td>${po.poNumber!""}</td>
           <td>${po.tranDate!""}</td>
+          <td>${po.vendorMemo!""}</td>
           <td>${po.lineCount!0}</td>
           <td>${amount?string(",##0.00")}</td>
-          <td>${po.vendorMemo!""}</td>
         </tr>
       </#list>
     </tbody>
