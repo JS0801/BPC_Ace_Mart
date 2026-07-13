@@ -74,13 +74,8 @@
           <b>${companyInformation.legalname}</b><br/>
           ${companyInformation.addressText}
         </td>
-        <td style="width: 40%;">
-          <div class="doc-title">PO Summary</div>
-          <div class="doc-subtitle">Purchase Order Group Email</div>
-        </td>
       </tr>
     </table>
-    <div class="divider"></div>
 
     <!-- ===================== HEADER DETAILS GRID ===================== -->
     <!-- IMPORTANT: no colspan anywhere in this table - this engine appears
