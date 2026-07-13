@@ -82,8 +82,8 @@
           <#if companyInformation.logoUrl?has_content>
             <img src="${companyInformation.logoUrl}" style="max-height: 46pt; margin-bottom: 6pt;" />
           </#if>
-          <div class="company-name">${companyInformation.companyName?html}</div>
-          <div class="company-address">${companyInformation.addressText?html}</div>
+          <div class="company-name">${companyInformation.companyName}</div>
+          <div class="company-address">${companyInformation.addressText}</div>
         </td>
         <td style="width: 40%;">
           <div class="doc-title">PO Summary</div>
@@ -103,16 +103,12 @@
     <table>
       <tr>
         <td style="width: 25%;">
-          <span class="field-label">Group Number</span><br/>
-          <span class="field-value">${record.custrecord_group_number?html}</span>
-        </td>
-        <td style="width: 25%;">
           <span class="field-label">Email Status</span><br/>
-          <span class="field-value">${record.custrecord_email_status?html}</span>
+          <span class="field-value">${record.custrecord_email_status}</span>
         </td>
         <td style="width: 25%;">
           <span class="field-label">Revision</span><br/>
-          <span class="field-value">${record.custrecord_revision_number?html}</span>
+          <span class="field-value">${record.custrecord_revision_number}</span>
         </td>
         <td style="width: 25%;">
           <span class="field-label">Purchase Orders</span><br/>
@@ -122,29 +118,29 @@
       <tr>
         <td>
           <span class="field-label">Vendor</span><br/>
-          <span class="field-value">${record.custrecord_vendor?html}</span>
+          <span class="field-value">${record.custrecord_vendor}</span>
         </td>
         <td>
           <span class="field-label">Recipient</span><br/>
-          <span class="field-value">${record.custrecord_recipient?html}</span>
+          <span class="field-value">${record.custrecord_recipient}</span>
         </td>
         <td>
           <span class="field-label">Sender</span><br/>
-          <span class="field-value">${record.custrecord_sender?html}</span>
+          <span class="field-value">${record.custrecord_sender}</span>
         </td>
         <td>
           <span class="field-label">Email Subject</span><br/>
-          <span class="field-value">${record.custrecord_email_subject?html}</span>
+          <span class="field-value">${record.custrecord_email_subject}</span>
         </td>
       </tr>
       <tr>
         <td>
           <span class="field-label">Date Sent</span><br/>
-          <span class="field-value">${record.custrecord_date_sent?html}</span>
+          <span class="field-value">${record.custrecord_date_sent}</span>
         </td>
         <td>
           <span class="field-label">Last Sent Date</span><br/>
-          <span class="field-value">${record.custrecord_last_sent_date?html}</span>
+          <span class="field-value">${record.custrecord_last_sent_date}</span>
         </td>
         <td></td>
         <td></td>
@@ -154,13 +150,13 @@
     <!-- ===================== MASTER MEMO ===================== -->
     <#if record.custrecord_master_memo?has_content>
       <div class="section-title">Master Memo</div>
-      <div class="memo-box">${record.custrecord_master_memo?html}</div>
+      <div class="memo-box">${record.custrecord_master_memo}</div>
     </#if>
 
     <!-- ===================== EMAIL BODY ===================== -->
     <!-- Rich Text field - already comes through as valid escaped HTML with
          real <br/> line breaks from the Suitelet, so render it directly
-         rather than running it through ?html again (which would
+         rather than running it through  again (which would
          double-escape it and break the <br/> tags). -->
     <#if record.custrecord_email_body?has_content>
       <div class="section-title">Email Body</div>
@@ -194,10 +190,10 @@
             </#if>
             <tr>
               <td>${po_index + 1}</td>
-              <td>${poTranId?html}</td>
-              <td>${(detail.status?html)!""}</td>
-              <td><#if detail.amount??>${detail.amount?html}</#if></td>
-              <td>${(detail.memo?html)!""}</td>
+              <td>${poTranId}</td>
+              <td>${(detail.status)!""}</td>
+              <td><#if detail.amount??>${detail.amount}</#if></td>
+              <td>${(detail.memo)!""}</td>
             </tr>
           </#list>
         </tbody>
