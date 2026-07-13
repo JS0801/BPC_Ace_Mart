@@ -98,51 +98,9 @@
       </tr>
       <tr>
         <td><b>No. of POs</b></td>
-        <td>
-  ${poList?size?number - 1}
-</td>
+        <td>${poList?size?number - 1}</td>
       </tr>
     </table>
-
-    <!-- ===================== HEADER DETAILS GRID ===================== -->
-    <!-- IMPORTANT: no colspan anywhere in this table - this engine appears
-         to silently drop an entire table (not just the offending row) if
-         colspan is used, which is what caused this whole section to
-         disappear last time. Every row uses the same 4 equal columns;
-         empty cells are left blank rather than spanned. rowspan is fine
-         (used safely elsewhere) - it's specifically colspan to avoid. -->
-    <table>
-      <tr>
-        <td style="width: 25%;">
-          <span class="field-label">Email Status</span><br/>
-          <span class="field-value">${record.custrecord_email_status}</span>
-        </td>
-        <td style="width: 25%;">
-          <span class="field-label">Revision</span><br/>
-          <span class="field-value">${record.custrecord_revision_number}</span>
-        </td>
-        <td style="width: 25%;">
-          <span class="field-label">Purchase Orders</span><br/>
-          <span class="field-value">${relatedPOs?size}</span>
-        </td>
-      </tr>
-    </table>
-
-    <!-- ===================== MASTER MEMO ===================== -->
-    <#if record.custrecord_master_memo?has_content>
-      <div class="section-title">Master Memo</div>
-      <div class="memo-box">${record.custrecord_master_memo}</div>
-    </#if>
-
-    <!-- ===================== EMAIL BODY ===================== -->
-    <!-- Rich Text field - already comes through as valid escaped HTML with
-         real <br/> line breaks from the Suitelet, so render it directly
-         rather than running it through  again (which would
-         double-escape it and break the <br/> tags). -->
-    <#if record.custrecord_email_body?has_content>
-      <div class="section-title">Email Body</div>
-      <div class="memo-box">${record.custrecord_email_body}</div>
-    </#if>
 
     <!-- ===================== RELATED PURCHASE ORDERS ===================== -->
     <div class="section-title">Related Purchase Orders</div>
