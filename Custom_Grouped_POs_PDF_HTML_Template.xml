@@ -99,7 +99,7 @@
       <tr>
         <td><b>No. of POs</b></td>
         <td>
-  ${poList?size}
+  ${poList?size}?number - 1
 </td>
       </tr>
     </table>
