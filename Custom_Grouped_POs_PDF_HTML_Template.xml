@@ -100,9 +100,9 @@
     </table>
   <table>
     <thead>
-    <th align = 'center'>
+    <tr align = 'center'>
       <b>Details</b>
-    </th></thead>
+    </tr></thead>
     <tbody>
        <tr>
         <td align = 'center'>${record.custrecord_master_memo}</td>
