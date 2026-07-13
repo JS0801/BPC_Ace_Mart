@@ -28,18 +28,7 @@
     </style>
   </head>
   <body size="Letter" padding="0.5in 0.6in">
-
-    <!-- ===================== NORMALIZE RELATED PO LIST ===================== -->
-    <!-- custrecord_po_number (a multi-select List/Record pointing at
-         Purchase Order transactions) does NOT come through as a real
-         per-item sequence in this rendering context - it's a single
-         flattened display string (e.g. "Purchase Order #PO400 Purchase
-         Order #PO401"), even though FreeMarker may report it as a
-         length-1 sequence wrapping that whole string. So: always coerce
-         to a plain string first, then split it apart ourselves on the
-         repeating "Purchase Order #" prefix rather than trusting
-         ?is_sequence/.text - this was the actual cause of both PO rows
-         getting merged into one. -->
+    
     <#assign poRawText = "">
     <#if record.custrecord_po_number?is_sequence>
       <#list record.custrecord_po_number as poItem>
@@ -82,7 +71,7 @@
           <#if companyInformation.logoUrl?has_content>
             <img src="${companyInformation.logoUrl}" style="max-height: 46pt; margin-bottom: 6pt;" />
           </#if>
-          <div class="company-name">${companyInformation.companyName}</div>
+          <div class="company-name">${companyInformation.legalname}</div>
           <div class="company-address">${companyInformation.addressText}</div>
         </td>
         <td style="width: 40%;">
