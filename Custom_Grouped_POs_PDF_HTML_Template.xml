@@ -77,6 +77,11 @@
         <td></td>
         <td colspan = "2" font-size = "17pt"><b>Group Summary</b></td>
       </tr>
+      <tr>
+        <td colspan = "2"></td>
+        <td>Vendor</td>
+        <td>${record.custrecord_vendor}</td>
+      </tr>
     </table>
 
     <!-- ===================== HEADER DETAILS GRID ===================== -->
