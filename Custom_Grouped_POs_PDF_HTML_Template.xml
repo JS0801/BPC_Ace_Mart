@@ -84,6 +84,18 @@
         <td><b>Date</b></td>
         <td>${.now?string("MM/dd/yyyy")}</td>
       </tr>
+      <tr>
+        <td><b>Version</b></td>
+        <td>v${record.custrecord_revision_number}</td>
+      </tr>
+      <tr>
+        <td><b>Memo</b></td>
+        <td>v${record.custrecord_master_memo}</td>
+      </tr>
+      <tr>
+        <td><b>No. of POs</b></td>
+        <td>v${record.custrecord_po_number}</td>
+      </tr>
     </table>
 
     <!-- ===================== HEADER DETAILS GRID ===================== -->
