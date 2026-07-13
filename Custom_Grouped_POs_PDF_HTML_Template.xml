@@ -104,36 +104,6 @@
           <span class="field-value">${relatedPOs?size}</span>
         </td>
       </tr>
-      <tr>
-        <td>
-          <span class="field-label">Vendor</span><br/>
-          <span class="field-value">${record.custrecord_vendor}</span>
-        </td>
-        <td>
-          <span class="field-label">Recipient</span><br/>
-          <span class="field-value">${record.custrecord_recipient}</span>
-        </td>
-        <td>
-          <span class="field-label">Sender</span><br/>
-          <span class="field-value">${record.custrecord_sender}</span>
-        </td>
-        <td>
-          <span class="field-label">Email Subject</span><br/>
-          <span class="field-value">${record.custrecord_email_subject}</span>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <span class="field-label">Date Sent</span><br/>
-          <span class="field-value">${record.custrecord_date_sent}</span>
-        </td>
-        <td>
-          <span class="field-label">Last Sent Date</span><br/>
-          <span class="field-value">${record.custrecord_last_sent_date}</span>
-        </td>
-        <td></td>
-        <td></td>
-      </tr>
     </table>
 
     <!-- ===================== MASTER MEMO ===================== -->
