@@ -71,7 +71,7 @@
 
     <table class="header-table">
       <tr>
-        <td style="width: 60%;" rowspan = "5">
+        <td style="width: 60%;" rowspan = "6">
           <#if companyInformation.logoUrl?has_content>
             <img src="${companyInformation.logoUrl}" style="height: 40pt; width: 70pt; margin-bottom: 6pt;" />
           </#if>
@@ -101,7 +101,7 @@
   <table>
     <thead>
     <tr align = 'center'>
-      <b>Details</b>
+      <th><b>Details</b></th>
     </tr></thead>
     <tbody>
        <tr>
