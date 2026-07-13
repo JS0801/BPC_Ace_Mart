@@ -71,7 +71,7 @@
           <#if companyInformation.logoUrl?has_content>
             <img src="${companyInformation.logoUrl}" style="max-height: 46pt; margin-bottom: 6pt;" />
           </#if>
-          ${companyInformation.legalname}
+          ${companyInformation.legalname}<br/>
           ${companyInformation.addressText}
         </td>
         <td style="width: 40%;">
