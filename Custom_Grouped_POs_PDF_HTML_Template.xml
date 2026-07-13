@@ -79,7 +79,7 @@
       </tr>
       <tr>
         <td colspan = "2"></td>
-        <td>Vendor</td>
+        <td><b>Vendor</b></td>
         <td>${record.custrecord_vendor.altname}</td>
       </tr>
     </table>
