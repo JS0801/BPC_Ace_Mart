@@ -69,7 +69,7 @@
       <tr>
         <td style="width: 60%;">
           <#if companyInformation.logoUrl?has_content>
-            <img src="${companyInformation.logoUrl}" style="height: 40pt; width: 50pt; margin-bottom: 6pt;" />
+            <img src="${companyInformation.logoUrl}" style="height: 40pt; width: 65pt; margin-bottom: 6pt;" />
           </#if>
           <b>${companyInformation.legalname}</b><br/>
           ${companyInformation.addressText}
