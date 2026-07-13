@@ -98,12 +98,15 @@
       </tr>
     </table>
   <table>
+    <thead>
     <th align = 'center'>
       <b>Details</b>
-    </th>
+    </th></thead>
+    <tbody>
        <tr>
         <td align = 'center'>${record.custrecord_master_memo}</td>
       </tr>
+      </tbody>
   </table>
 
 <table style="width:100%; height:520pt;">
