@@ -71,8 +71,8 @@
           <#if companyInformation.logoUrl?has_content>
             <img src="${companyInformation.logoUrl}" style="max-height: 46pt; margin-bottom: 6pt;" />
           </#if>
-          <div class="company-name">${companyInformation.legalname}</div>
-          <div class="company-address">${companyInformation.addressText}</div>
+          ${companyInformation.legalname}
+          ${companyInformation.addressText}
         </td>
         <td style="width: 40%;">
           <div class="doc-title">PO Summary</div>
