@@ -11,8 +11,8 @@
       .header-table td { padding: 0; }
       .company-name { font-size: 14pt; font-weight: bold; color: #222222; }
       .company-address { font-size: 8.5pt; color: #666666; line-height: 1.4; }
-      .doc-title { font-size: 22pt; font-weight: bold; color: #2c3e50; text-align: right; }
-      .doc-subtitle { font-size: 9pt; color: #888888; text-align: right; }
+      .doc-title { font-size: 22pt; font-weight: bold; color: #2c3e50; align: right; }
+      .doc-subtitle { font-size: 9pt; color: #888888; align: right; }
 
       .divider { border-bottom: 2pt solid #2c3e50; margin-top: 8pt; margin-bottom: 12pt; }
 
@@ -22,7 +22,7 @@
       .section-title { font-size: 10.5pt; font-weight: bold; color: #2c3e50; padding-top: 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #dddddd; }
       .memo-box { font-size: 9.5pt; color: #333333; padding-top: 6pt; padding-bottom: 6pt; line-height: 1.4; }
 
-      .po-table th { font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #666666; background-color: #f2f2f2; padding: 6pt; text-align: left; border-bottom: 1pt solid #dddddd; }
+      .po-table th { font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #666666; background-color: #f2f2f2; padding: 6pt; align: left; border-bottom: 1pt solid #dddddd; }
       .po-table td { font-size: 9.5pt; padding: 6pt; border-bottom: 0.5pt solid #eeeeee; }
       .po-count { font-size: 8.5pt; color: #888888; padding-top: 4pt; }
     </style>
@@ -107,7 +107,7 @@
   <tr>
     <td valign="middle" style="vertical-align:middle; padding:0;">
 
-      <div class="section-title" style="text-align:center;">Related Purchase Orders</div>
+      <div class="section-title" style="align:center;">Related Purchase Orders</div>
 
       <#assign poDetailsJson = (record.custrecord_bpc_po_details!"")?trim>
       <#assign poDetails = {}>
@@ -125,12 +125,12 @@
         <table class="po-table" style="width:100%; table-layout:fixed;">
           <thead>
             <tr>
-              <th style="width:6%; text-align:center;">#</th>
-              <th style="width:18%; text-align:center;">PO Number</th>
-              <th style="width:14%; text-align:center;">Date</th>
-              <th style="width:32%; text-align:center;">Memo</th>
-              <th style="width:12%; text-align:center;">Lines</th>
-              <th style="width:18%; text-align:center;">Amount</th>
+              <th style="width:6%; align:center;">#</th>
+              <th style="width:18%; align:center;">PO Number</th>
+              <th style="width:14%; align:center;">Date</th>
+              <th style="width:32%; align:center;">Memo</th>
+              <th style="width:12%; align:center;">Lines</th>
+              <th style="width:18%; align:center;">Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -149,25 +149,25 @@
               <#assign totalAmount = totalAmount + amount>
 
               <tr>
-                <td style="text-align:center;">${po_index + 1}</td>
-                <td style="text-align:center;">${po.poNumber!""}</td>
-                <td style="text-align:center;">${po.tranDate!""}</td>
+                <td style="align:center;">${po_index + 1}</td>
+                <td style="align:center;">${po.poNumber!""}</td>
+                <td style="align:center;">${po.tranDate!""}</td>
                 <td>${po.vendorMemo!""}</td>
-                <td style="text-align:center;">${po.lineCount!0}</td>
-                <td style="text-align:right;">${amount?string(",##0.00")}</td>
+                <td style="align:center;">${po.lineCount!0}</td>
+                <td style="align:right;">${amount?string(",##0.00")}</td>
               </tr>
             </#list>
           </tbody>
         </table>
 
-        <div class="po-count" style="text-align:center;">
+        <div class="po-count" style="align:center;">
           ${relatedPOs?size} Purchase Order<#if relatedPOs?size gt 1>s</#if> included in this send.
           <#if totalAmount gt 0>
             - Total: ${totalAmount?string(",##0.00")}
           </#if>
         </div>
       <#else>
-        <div class="memo-box" style="text-align:center;">No related Purchase Orders found.</div>
+        <div class="memo-box" style="align:center;">No related Purchase Orders found.</div>
       </#if>
 
     </td>
