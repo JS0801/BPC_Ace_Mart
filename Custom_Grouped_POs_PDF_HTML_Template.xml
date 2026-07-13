@@ -77,7 +77,6 @@
         <td colspan = "2" font-size = "17pt"><b>Group Summary</b></td>
       </tr>
       <tr>
-        <td colspan = "2"></td>
         <td><b>Vendor</b></td>
         <td>${record.custrecord_vendor.altname}</td>
       </tr>
