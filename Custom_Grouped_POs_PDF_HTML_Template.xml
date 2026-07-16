@@ -94,7 +94,7 @@
         <td>v${record.custrecord_revision_number}</td>
       </tr>
       <tr>
-        <td><b>No. of POs</b></td>
+        <td><b>PO #</b></td>
         <td>${poList?size?number - 1}</td>
       </tr>
     </table>
