@@ -105,7 +105,7 @@
 
 <table style="width:100%; height:520pt;">
   <tr>
-    <td valign="middle" style="vertical-align:middle; padding:0; align:center;" class="section-title">Related Purchase Orders
+    <td style="padding:0; align:center;" class="section-title">Related Purchase Orders
 
 
       <#assign poDetailsJson = (record.custrecord_bpc_po_details!"")?trim>
@@ -151,7 +151,7 @@
                 <td style="align:center;">${po_index + 1}</td>
                 <td style="align:center;">${po.poNumber!""}</td>
                 <td style="align:center;">${po.tranDate!""}</td>
-                <td>${po.vendorMemo!""}</td>
+                <td style="align:center;">${po.vendorMemo!""}</td>
                 <td style="align:center;">${po.lineCount!0}</td>
                 <td style="align:right;">${amount?string(",##0.00")}</td>
               </tr>
