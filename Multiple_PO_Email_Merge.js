@@ -25,7 +25,7 @@ define([
 ) {
 
     var TEMP_FOLDER_ID = 8768;
-    var PARAM_HTML_FILE_ID = 'custscript_po_email_html_file';.
+    var PARAM_HTML_FILE_ID = 'custscript_po_email_html_file';
     var GROUP_PDF_TEMPLATE_ID = 'custtmpl_custom_grouped_pos_pdfhtml_template';
 
     var FIELD_EMAIL_SENT = 'custbody_email_sent';
