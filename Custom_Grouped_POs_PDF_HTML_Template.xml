@@ -157,9 +157,7 @@
               </tr>
             </#list>
              <tr>
-                <td style="align:center;" colspan = "2"><b>Amount Total</b></td>
-                <td style="align:center;"></td>
-                <td style="align:center;"></td>
+                <td style="align:center;" colspan = "4"><b>Amount Total</b></td>
                 <td style="align:center;"></td>
                 <td style="align:right;"><b>${totalAmount?string(",##0.00")}</b></td>
               </tr>
