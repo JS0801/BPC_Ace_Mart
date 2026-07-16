@@ -156,19 +156,16 @@
                 <td style="align:right;">${amount?string(",##0.00")}</td>
               </tr>
             </#list>
+             <tr>
+                <td style="align:center;" colspan = "2"><b>Amount Total</b></td>
+                <td style="align:center;"></td>
+                <td style="align:center;"></td>
+                <td style="align:center;"></td>
+                <td style="align:right;"><b>${totalAmount?string(",##0.00")}</b></td>
+              </tr>
+                
           </tbody>
         </table>
-
-        <div class="po-count" style="align:center;">
-          ${relatedPOs?size} Purchase Order<#if relatedPOs?size gt 1>s</#if> included in this send.
-          <#if totalAmount gt 0>
-            - Total: ${totalAmount?string(",##0.00")}
-          </#if>
-        </div>
-      <#else>
-        <div class="memo-box" style="align:center;">No related Purchase Orders found.</div>
-      </#if>
-
     </td>
   </tr>
 </table>
