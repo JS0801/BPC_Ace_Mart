@@ -579,8 +579,10 @@ define([
                 incrementRevision: createOnly && hasGrouped
             });
 
+            var groupid = tracking.id;
+
             if (createOnly) {
-                stampPurchaseOrders(poIds, groupNumber, customMemoMap, false);
+                stampPurchaseOrders(poIds, groupNumber, customMemoMap, false, groupid);
                 response.updatedIds = poIds;
                 response.groupNumber = groupNumber;
                 response.groupMemo = groupMemo;
@@ -622,7 +624,7 @@ define([
             emailWasSent = true;
 
             markTrackingSent(tracking.id, isResend ? STATUS_RESEND_ID : STATUS_SENT_ID, finalDateSent, sendDate, finalRevision);
-            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true);
+            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true, groupid);
 
             response.updatedIds = poIds;
             response.groupNumber = groupNumber;
@@ -878,7 +880,7 @@ define([
         }
     }
 
-    function stampPurchaseOrders(poIds, groupNumber, customMemoMap, markSent) {
+    function stampPurchaseOrders(poIds, groupNumber, customMemoMap, markSent, groupid) {
         customMemoMap = customMemoMap || {};
 
         for (var i = 0; i < poIds.length; i++) {
@@ -902,6 +904,8 @@ define([
                 options: { enableSourcing: false, ignoreMandatoryFields: true }
             });
         }
+        var groupRec = record.load({type: 'customrecord_grouped_pos', id: groupid});
+        groupRec.save();
     }
 
     function getGroupTrackingMap(poData) {
