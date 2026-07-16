@@ -98,8 +98,8 @@
         <td>${poList?size?number - 1}</td>
       </tr>
     </table>
-  <table margin-top = "30px">
-    <tr>      <th align = 'center'><b>Details</b></th>    </tr>
+  <table margin-top = "30px" class="po-table" style="width:100%; table-layout:fixed;">
+    <thead><tr><th align = 'center'><b>Details</b></th></tr></thead>
        <tr>        <td align = 'center'>${record.custrecord_master_memo}</td>      </tr>
   </table>
 
