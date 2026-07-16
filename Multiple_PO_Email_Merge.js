@@ -577,7 +577,7 @@ define([
                 statusId: STATUS_GROUPED_ID,
                 setDateSent: false,
                 setLastSentDate: false,
-                incrementRevision: createOnly && hasGrouped
+                incrementRevision: true
             });
 
             var groupid = tracking.id;
@@ -596,7 +596,7 @@ define([
             var sendDate = new Date();
             var finalDateSent = tracking.dateSent || sendDate;
             var finalRevision = tracking.revision + (isResend ? 1 : 0);
-            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true, groupid);
+            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true, groupid, finalRevision);
 
             mergedPdf = createMergedPoPdf(poIds, firstVendorName, tracking.id);            
 
@@ -901,7 +901,7 @@ function renderGroupedPoRecordPdf(trackingRecordId) {
         values[CREC_EMAIL_STATUS] = statusId;
         values[CREC_DATE_SENT] = dateSent || new Date();
         values[CREC_LAST_SENT_DATE] = lastSentDate || new Date();
-        values[CREC_REVISION_NUMBER] = revision;
+       // values[CREC_REVISION_NUMBER] = revision;
         values[CREC_ERROR_LOG] = '';
 
         record.submitFields({
