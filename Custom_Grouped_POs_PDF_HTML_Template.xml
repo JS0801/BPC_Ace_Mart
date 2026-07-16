@@ -105,9 +105,8 @@
 
 <table style="width:100%; height:520pt;">
   <tr>
-    <td valign="middle" style="vertical-align:middle; padding:0;">Related Purchase Orders
+    <td valign="middle" style="vertical-align:middle; padding:0; align:center;" class="section-title">Related Purchase Orders
 
-      <div class="section-title" style="align:center;">Related Purchase Orders</div>
 
       <#assign poDetailsJson = (record.custrecord_bpc_po_details!"")?trim>
       <#assign poDetails = {}>
