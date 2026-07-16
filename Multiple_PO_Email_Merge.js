@@ -747,7 +747,17 @@ define([
     return mergedPdf;
 }
 
-    function renderGroupedPoRecordPdf(trackingRecordId) {
+function renderGroupedPoRecordPdf(trackingRecordId) {
+    if (!trackingRecordId) {
+        throw new Error('Missing grouped PO tracking record ID.');
+    }
+
+    var groupRecord = record.load({
+        type: CUSTOM_REC_TYPE,
+        id: trackingRecordId,
+        isDynamic: false
+    });
+
     var renderer = render.create();
 
     renderer.setTemplateByScriptId({
@@ -756,14 +766,14 @@ define([
 
     renderer.addRecord({
         templateName: 'record',
-        record: record.load({
-            type: CUSTOM_REC_TYPE,
-            id: trackingRecordId,
-            isDynamic: false
-        })
+        record: groupRecord
     });
 
-    return renderer.renderAsPdf();
+    var pdfXml = renderer.renderAsString();
+
+    return render.xmlToPdf({
+        xmlString: pdfXml
+    });
 }
 
     function createSummaryPagePdf(summary) {
