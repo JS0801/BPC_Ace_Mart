@@ -19,7 +19,7 @@
       .field-label { font-size: 8pt; font-weight: bold; color: #888888; text-transform: uppercase; }
       .field-value { font-size: 10pt; color: #222222; }
 
-      .section-title { font-size: 10.5pt; font-weight: bold; color: #2c3e50; padding-top: 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #dddddd; }
+      .section-title { font-size: 10.5pt; padding-top: 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #dddddd; }
       .memo-box { font-size: 9.5pt; color: #333333; padding-top: 6pt; padding-bottom: 6pt; line-height: 1.4; }
 
       .po-table th { font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #666666; background-color: #f2f2f2; padding: 6pt; align: left; border-bottom: 1pt solid #dddddd; }
