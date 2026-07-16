@@ -595,21 +595,9 @@ define([
             var sendDate = new Date();
             var finalDateSent = tracking.dateSent || sendDate;
             var finalRevision = tracking.revision + (isResend ? 1 : 0);
+            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true, groupid);
 
-            mergedPdf = createMergedPoPdf(poIds, firstVendorName, {
-                groupNumber: groupNumber,
-                poNumbers: poNumbers,
-                vendorName: firstVendorName,
-                recipient: firstVendorName + (emailRecipients.length ? (' <' + emailRecipients.join(', ') + '>') : ''),
-                sender: runtime.getCurrentUser().name || 'System',
-                emailSubject: emailSubject,
-                emailBody: emailBody,
-                groupMemo: groupMemo,
-                status: isResend ? 'Resend' : 'Sent',
-                dateSent: formatDateTime(finalDateSent),
-                lastSentDate: formatDateTime(sendDate),
-                revision: finalRevision
-            });
+            mergedPdf = createMergedPoPdf(poIds, firstVendorName, tracking.id);            
 
             pdfAttached = attachGeneratedPdfToTrackingRecord(tracking.id, mergedPdf);
 
@@ -624,7 +612,7 @@ define([
             emailWasSent = true;
 
             markTrackingSent(tracking.id, isResend ? STATUS_RESEND_ID : STATUS_SENT_ID, finalDateSent, sendDate, finalRevision);
-            stampPurchaseOrders(poIds, groupNumber, customMemoMap, true, groupid);
+            
 
             response.updatedIds = poIds;
             response.groupNumber = groupNumber;
@@ -692,33 +680,90 @@ define([
         return data;
     }
 
-    function createMergedPoPdf(poIds, vendorName, summary) {
-        var coverPdf = createSummaryPagePdf(summary);
-        var pdfSetXml = '<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd"><pdfset>';
-        var estimatedBytes = 0;
+    // function createMergedPoPdf(poIds, vendorName, summary) {
+    //     var coverPdf = createSummaryPagePdf(summary);
+    //     var pdfSetXml = '<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd"><pdfset>';
+    //     var estimatedBytes = 0;
 
-        if (coverPdf) {
-            var coverContents = coverPdf.getContents();
-            estimatedBytes += getBase64ByteSize(coverContents);
-            checkMergedPdfLimit(estimatedBytes);
-            pdfSetXml += '<pdf src="data:application/pdf;base64,' + coverContents + '"/>';
-        }
+    //     if (coverPdf) {
+    //         var coverContents = coverPdf.getContents();
+    //         estimatedBytes += getBase64ByteSize(coverContents);
+    //         checkMergedPdfLimit(estimatedBytes);
+    //         pdfSetXml += '<pdf src="data:application/pdf;base64,' + coverContents + '"/>';
+    //     }
 
-        for (var i = 0; i < poIds.length; i++) {
-            var poPdf = render.transaction({ entityId: Number(poIds[i]), printMode: render.PrintMode.PDF });
-            var poContents = poPdf.getContents();
-            estimatedBytes += getBase64ByteSize(poContents);
-            checkMergedPdfLimit(estimatedBytes);
-            pdfSetXml += '<pdf src="data:application/pdf;base64,' + poContents + '"/>';
-        }
+    //     for (var i = 0; i < poIds.length; i++) {
+    //         var poPdf = render.transaction({ entityId: Number(poIds[i]), printMode: render.PrintMode.PDF });
+    //         var poContents = poPdf.getContents();
+    //         estimatedBytes += getBase64ByteSize(poContents);
+    //         checkMergedPdfLimit(estimatedBytes);
+    //         pdfSetXml += '<pdf src="data:application/pdf;base64,' + poContents + '"/>';
+    //     }
 
-        pdfSetXml += '</pdfset>';
+    //     pdfSetXml += '</pdfset>';
 
-        var mergedPdf = render.xmlToPdf({ xmlString: pdfSetXml });
-        checkMergedPdfLimit(getBase64ByteSize(mergedPdf.getContents()));
-        mergedPdf.name = cleanFileName('Merged_PO_' + vendorName + '_' + new Date().getTime() + '.pdf');
-        return mergedPdf;
+    //     var mergedPdf = render.xmlToPdf({ xmlString: pdfSetXml });
+    //     checkMergedPdfLimit(getBase64ByteSize(mergedPdf.getContents()));
+    //     mergedPdf.name = cleanFileName('Merged_PO_' + vendorName + '_' + new Date().getTime() + '.pdf');
+    //     return mergedPdf;
+    // }
+
+  function createMergedPoPdf(poIds, vendorName, trackingRecordId) {
+    var groupPdf = renderGroupedPoRecordPdf(trackingRecordId);
+
+    var pdfSetXml = '<?xml version="1.0"?>' +
+        '<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">' +
+        '<pdfset>';
+
+    var estimatedBytes = 0;
+
+    if (groupPdf) {
+        var groupContents = groupPdf.getContents();
+        estimatedBytes += getBase64ByteSize(groupContents);
+        checkMergedPdfLimit(estimatedBytes);
+        pdfSetXml += '<pdf src="data:application/pdf;base64,' + groupContents + '"/>';
     }
+
+    for (var i = 0; i < poIds.length; i++) {
+        var poPdf = render.transaction({
+            entityId: Number(poIds[i]),
+            printMode: render.PrintMode.PDF
+        });
+
+        var poContents = poPdf.getContents();
+        estimatedBytes += getBase64ByteSize(poContents);
+        checkMergedPdfLimit(estimatedBytes);
+
+        pdfSetXml += '<pdf src="data:application/pdf;base64,' + poContents + '"/>';
+    }
+
+    pdfSetXml += '</pdfset>';
+
+    var mergedPdf = render.xmlToPdf({ xmlString: pdfSetXml });
+    checkMergedPdfLimit(getBase64ByteSize(mergedPdf.getContents()));
+
+    mergedPdf.name = cleanFileName('Merged_PO_' + vendorName + '_' + new Date().getTime() + '.pdf');
+    return mergedPdf;
+}
+
+    function renderGroupedPoRecordPdf(trackingRecordId) {
+    var renderer = render.create();
+
+    renderer.setTemplateByScriptId({
+        scriptId: GROUP_PDF_TEMPLATE_ID
+    });
+
+    renderer.addRecord({
+        templateName: 'record',
+        record: record.load({
+            type: CUSTOM_REC_TYPE,
+            id: trackingRecordId,
+            isDynamic: false
+        })
+    });
+
+    return renderer.renderAsPdf();
+}
 
     function createSummaryPagePdf(summary) {
         function row(label, value, multiline) {
