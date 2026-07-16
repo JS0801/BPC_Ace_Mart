@@ -166,6 +166,10 @@
                 
           </tbody>
         </table>
+      <#else>
+        <p class="memo-box" style="align:center;">No related Purchase Orders found.</p>
+      </#if>
+
     </td>
   </tr>
 </table>
