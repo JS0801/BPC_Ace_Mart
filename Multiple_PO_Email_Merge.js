@@ -32,8 +32,12 @@ define([
     var FIELD_GROUP_NUMBER = 'custbody_group_number';
     var FIELD_VENDOR_MEMO = 'custbody_vendor_memo';
     var FIELD_STOCK_PO = 'custbody_ace_join_stockpo';
+    var FIELD_SUBSIDIARY = 'subsidiary';
+    var FIELD_LOCATION = 'location';
+    var FIELD_LOCATION_TYPE = 'locationtype';
     var FIELD_VENDOR_SEND_PO_EMAIL = 'custentity_bpc_send_group_po_email';
     var FIELD_VENDOR_PO_EMAIL = 'custentity_bpc_po_email_address';
+    var WAREHOUSE_LOCATION_TYPE_ID = '2';
 
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
     var CREC_GROUP_NUMBER = 'custrecord_group_number';
@@ -58,6 +62,8 @@ define([
 
     var FLD_ACTION = 'custpage_action_mode';
     var FLD_SELECTED_IDS = 'custpage_selected_po_ids';
+    var FLD_SUBSIDIARY = 'custpage_filter_subsidiary';
+    var FLD_LOCATION = 'custpage_filter_location';
     var FLD_PO = 'custpage_filter_po';
     var FLD_PO_TEXT = 'custpage_filter_po_text';
     var FLD_VENDOR = 'custpage_filter_vendor';
@@ -75,6 +81,8 @@ define([
     var FLD_AJAX_ACTION = 'custpage_ajax_action';
 
     var MAX_UI_PO_ROWS = 500;
+    var MAX_SUBSIDIARY_OPTION_ROWS = 1000;
+    var MAX_LOCATION_OPTION_ROWS = 10000;
     var MAX_PO_OPTION_ROWS = 10000;
     var MAX_VENDOR_OPTION_ROWS = 10000;
     var MAX_MERGED_PDF_BYTES = 9 * 1024 * 1024;
@@ -86,6 +94,8 @@ define([
 
         try {
             var filters = {
+                subsidiaryId: params[FLD_SUBSIDIARY] || '',
+                locationId: params[FLD_LOCATION] || '',
                 poId: params[FLD_PO] || '',
                 poText: params[FLD_PO_TEXT] || '',
                 vendorId: params[FLD_VENDOR] || '',
@@ -121,8 +131,9 @@ define([
 
                 writeJson(context, {
                     success: true,
-                    poData: getPurchaseOrders(filters),
-                    poOptions: getPurchaseOrderOptions(filters),
+                    locationOptions: getLocationOptions(filters.subsidiaryId),
+                    poData: hasRequiredLocationFilters(filters) ? getPurchaseOrders(filters) : [],
+                    poOptions: hasRequiredLocationFilters(filters) ? getPurchaseOrderOptions(filters) : [],
                     refreshTable: true
                 });
                 return;
@@ -148,7 +159,7 @@ define([
         form.addField({ id: FLD_SELECTED_IDS, type: serverWidget.FieldType.LONGTEXT, label: 'Selected PO IDs' })
             .updateDisplayType({ displayType: serverWidget.FieldDisplayType.HIDDEN });
 
-        var shouldLoadPoData = hasAnyFilter(filters);
+        var shouldLoadPoData = hasRequiredLocationFilters(filters);
         var currentScript = runtime.getCurrentScript();
         var suiteletUrl = url.resolveScript({
             scriptId: currentScript.id,
@@ -162,6 +173,8 @@ define([
             filters: filters,
             poData: shouldLoadPoData ? getPurchaseOrders(filters) : [],
             poOptions: shouldLoadPoData ? getPurchaseOrderOptions(filters) : [],
+            subsidiaryOptions: getSubsidiaryOptions(),
+            locationOptions: getLocationOptions(filters.subsidiaryId),
             vendorOptions: getVendorOptions()
         });
 
@@ -178,6 +191,8 @@ define([
         var fieldIds = {
             action: FLD_ACTION,
             selectedIds: FLD_SELECTED_IDS,
+            subsidiary: FLD_SUBSIDIARY,
+            location: FLD_LOCATION,
             po: FLD_PO,
             poText: FLD_PO_TEXT,
             vendor: FLD_VENDOR,
@@ -201,6 +216,8 @@ define([
             FILTERS_JSON: dataObj.filters || {},
             PO_DATA_JSON: dataObj.poData || [],
             PO_OPTIONS_JSON: dataObj.poOptions || [],
+            SUBSIDIARY_OPTIONS_JSON: dataObj.subsidiaryOptions || [],
+            LOCATION_OPTIONS_JSON: dataObj.locationOptions || [],
             VENDOR_OPTIONS_JSON: dataObj.vendorOptions || [],
             RESULT_MESSAGE_JSON: null,
             EMAIL_BODY_MEMO_JSON: '',
@@ -219,7 +236,7 @@ define([
     function getPurchaseOrders(filters) {
         var data = [];
         var vendorCache = {};
-        if (!hasAnyFilter(filters)) return data;
+        if (!hasRequiredLocationFilters(filters)) return data;
 
         var poSearch = search.create({
             type: 'purchaseorder',
@@ -275,12 +292,12 @@ define([
 
     function getPurchaseOrderOptions(filters) {
         var options = [];
-        if (!hasAnyFilter(filters)) return options;
+        if (!hasRequiredLocationFilters(filters)) return options;
 
         var poSearch = search.create({
             type: 'purchaseorder',
             settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
-            filters: buildPurchaseOrderFilters(filters, true),
+            filters: buildPurchaseOrderOptionFilters(filters),
             columns: [
                 search.createColumn({ name: 'internalid' }),
                 search.createColumn({ name: 'tranid', sort: search.Sort.DESC })
@@ -291,6 +308,50 @@ define([
             options.push({
                 id: result.getValue({ name: 'internalid' }) || '',
                 text: result.getValue({ name: 'tranid' }) || ''
+            });
+        });
+
+        return options;
+    }
+
+    function getSubsidiaryOptions() {
+        var options = [];
+        var subsidiarySearch = search.create({
+            type: search.Type.SUBSIDIARY,
+            filters: [['isinactive', 'is', 'F']],
+            columns: [search.createColumn({ name: 'name', sort: search.Sort.ASC })]
+        });
+
+        runSearch(subsidiarySearch, MAX_SUBSIDIARY_OPTION_ROWS, function (result) {
+            options.push({
+                id: result.id,
+                text: result.getValue({ name: 'name' }) || ''
+            });
+        });
+
+        return options;
+    }
+
+    function getLocationOptions(subsidiaryId) {
+        var options = [];
+        if (!subsidiaryId) return options;
+
+        var locationSearch = search.create({
+            type: search.Type.LOCATION,
+            filters: [
+                ['isinactive', 'is', 'F'],
+                'AND',
+                [FIELD_LOCATION_TYPE, 'anyof', WAREHOUSE_LOCATION_TYPE_ID],
+                'AND',
+                [FIELD_SUBSIDIARY, 'anyof', subsidiaryId]
+            ],
+            columns: [search.createColumn({ name: 'name', sort: search.Sort.ASC })]
+        });
+
+        runSearch(locationSearch, MAX_LOCATION_OPTION_ROWS, function (result) {
+            options.push({
+                id: result.id,
+                text: result.getValue({ name: 'name' }) || ''
             });
         });
 
@@ -325,7 +386,7 @@ define([
     }
 
     function buildPurchaseOrderFilters(filters, ignorePoFilter) {
-        var searchFilters = [['type', 'anyof', 'PurchOrd'], 'AND', ['mainline', 'is', 'T']];
+        var searchFilters = buildBasePurchaseOrderFilters(filters);
 
         if (filters.dateFrom && filters.dateTo) {
             searchFilters.push('AND', ['trandate', 'within', convertHtmlDateToNsDate(filters.dateFrom), convertHtmlDateToNsDate(filters.dateTo)]);
@@ -377,6 +438,24 @@ define([
             searchFilters.push('AND', ['internalid', 'anyof', filters.poId]);
         } else if (filters.poText) {
             searchFilters.push('AND', ['tranid', 'contains', filters.poText]);
+        }
+
+        return searchFilters;
+    }
+
+    function buildPurchaseOrderOptionFilters(filters) {
+        return buildBasePurchaseOrderFilters(filters);
+    }
+
+    function buildBasePurchaseOrderFilters(filters) {
+        var searchFilters = [['type', 'anyof', 'PurchOrd'], 'AND', ['mainline', 'is', 'T']];
+
+        if (filters.subsidiaryId) {
+            searchFilters.push('AND', [FIELD_SUBSIDIARY, 'anyof', filters.subsidiaryId]);
+        }
+
+        if (filters.locationId) {
+            searchFilters.push('AND', [FIELD_LOCATION, 'anyof', filters.locationId]);
         }
 
         return searchFilters;
@@ -1010,7 +1089,11 @@ function renderGroupedPoRecordPdf(trackingRecordId) {
     }
 
     function hasAnyFilter(filters) {
-        return !!(filters && (filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.stockPo || filters.groupNumber));
+        return !!(filters && (filters.subsidiaryId || filters.locationId || filters.poId || filters.poText || filters.vendorId || filters.vendorText || filters.dateFrom || filters.dateTo || filters.emailStatus || filters.stockPo || filters.groupNumber));
+    }
+
+    function hasRequiredLocationFilters(filters) {
+        return !!(filters && filters.subsidiaryId && filters.locationId);
     }
 
     function generateGroupNumber(vendorId) {
