@@ -41,9 +41,10 @@ define([
     var FIELD_VENDOR_SEND_PO_EMAIL = 'custentity_bpc_send_group_po_email';
     var FIELD_VENDOR_PO_EMAIL = 'custentity_bpc_po_email_address';
     var WAREHOUSE_LOCATION_TYPE_ID = '2';
+    var CUSTOM_REC_TYPE_NUMERIC_ID = '3438';
 
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
-    var CREC_GROUP_NUMBER = 'name';
+    var CREC_GROUP_NUMBER = 'custrecord_group_number';
     var CREC_PO_NUMBER = 'custrecord_po_number';
     var CREC_MASTER_MEMO = 'custrecord_master_memo';
     var CREC_EMAIL_SUBJECT = 'custrecord_email_subject';
@@ -295,6 +296,11 @@ define([
             } catch (e) {
                 row.poUrl = '';
             }
+            try {
+                row.vendorUrl = row.vendorId ? url.resolveRecord({ recordType: record.Type.VENDOR, recordId: row.vendorId, isEditMode: false }) : '';
+            } catch (e2) {
+                row.vendorUrl = '';
+            }
             row.tranDate = result.getValue({ name: 'trandate' }) || '';
             row.amount = result.getValue({ name: 'amount' }) || '';
             data.push(row);
@@ -306,6 +312,8 @@ define([
                 data[i].emailSentDate = groupTrackingMap[data[i].groupNumber].dateSent || '';
                 data[i].trackingStatus = groupTrackingMap[data[i].groupNumber].statusId || '';
                 data[i].groupMemo = groupTrackingMap[data[i].groupNumber].groupMemo || '';
+                data[i].groupRecordId = groupTrackingMap[data[i].groupNumber].recordId || '';
+                data[i].groupRecordUrl = groupTrackingMap[data[i].groupNumber].recordUrl || '';
             }
 
             if (String(data[i].trackingStatus) === String(STATUS_FAILED_ID)) {
@@ -537,6 +545,7 @@ define([
             tranId: result.getValue({ name: 'tranid' }) || '',
             vendorId: vendorId || '',
             vendorName: vendorInfo.name || result.getText({ name: 'entity' }) || '',
+            vendorUrl: '',
             vendorEmail: vendorInfo.email || '',
             vendorSendPoEmail: !!vendorInfo.sendPoEmail,
             tranDate: result.getValue({ name: 'trandate' }) || '',
@@ -548,9 +557,25 @@ define([
             vendorMemo: result.getValue({ name: FIELD_VENDOR_MEMO }) || '',
             stockPo: stockPoValue === true || stockPoValue === 'T',
             groupNumber: result.getValue({ name: FIELD_GROUP_NUMBER }) || '',
+            groupRecordId: '',
+            groupRecordUrl: '',
             amount: result.getValue({ name: 'amount' }) || '',
             emailSent: emailSentValue === true || emailSentValue === 'T'
         };
+    }
+
+    function getGroupRecordUrl(groupRecordId) {
+        if (!groupRecordId) return '';
+
+        try {
+            return url.resolveRecord({
+                recordType: CUSTOM_REC_TYPE,
+                recordId: groupRecordId,
+                isEditMode: false
+            });
+        } catch (e) {
+            return '/app/common/custom/custrecordentry.nl?rectype=' + CUSTOM_REC_TYPE_NUMERIC_ID + '&id=' + encodeURIComponent(groupRecordId);
+        }
     }
 
     function getVendorInfo(vendorId, vendorCache) {
@@ -766,7 +791,6 @@ define([
         var vendorId = firstPo ? firstPo.vendorId : (clientContext.vendorId || filters.vendorId || '');
         var vendorName = firstPo ? firstPo.vendorName : (clientContext.vendorName || '');
         var vendorEmail = firstPo ? firstPo.vendorEmail : (clientContext.vendorEmail || '');
-        var groupNumber = '';
         var poNumbers = [];
         var totalAmount = 0;
         var hasAmount = false;
@@ -774,7 +798,6 @@ define([
         for (var i = 0; i < poList.length; i++) {
             var po = poList[i] || {};
             if (po.tranId) poNumbers.push(po.tranId);
-            if (!groupNumber && po.groupNumber) groupNumber = po.groupNumber;
 
             var amount = parseFloat(String(po.amount || '').replace(/[^0-9.\-]/g, ''));
             if (!isNaN(amount)) {
@@ -786,15 +809,6 @@ define([
             if (key && customMemoMap.hasOwnProperty(key)) {
                 po.vendorMemo = customMemoMap[key] || '';
             }
-        }
-
-        var trackingInfo = { revision: '', groupMemo: '' };
-        if (groupNumber) {
-            trackingInfo = getTrackingInfoByGroupNumber(groupNumber);
-        }
-
-        if (groupNumber && !groupMemo) {
-            groupMemo = trackingInfo.groupMemo || '';
         }
 
         if (!groupMemo && clientContext.groupMemo) {
@@ -815,8 +829,6 @@ define([
             poNumbers: poNumbers,
             poCount: poList.length,
             poTotalAmount: hasAmount ? formatMoney(totalAmount) : '',
-            groupNumber: groupNumber || '',
-            revisionNumber: trackingInfo.revision || '',
             groupMemo: groupMemo || '',
             poSummaryTable: buildEmailPoSummaryTable(poList),
             senderName: getCurrentUserName()
@@ -830,8 +842,6 @@ define([
             po_numbers: allowHtml ? escapeHtml(context.poNumbers.join(', ')) : context.poNumbers.join(', '),
             po_count: String(context.poCount || ''),
             po_total_amount: context.poTotalAmount || '',
-            group_number: allowHtml ? escapeHtml(context.groupNumber) : stripHtmlText(context.groupNumber),
-            revision_number: context.revisionNumber || '',
             group_memo: allowHtml ? textToHtml(context.groupMemo) : stripHtmlText(context.groupMemo),
             po_summary_table: allowHtml ? context.poSummaryTable : stripHtmlText(context.poNumbers.join(', ')),
             sender_name: allowHtml ? escapeHtml(context.senderName) : stripHtmlText(context.senderName)
@@ -882,29 +892,6 @@ define([
         return html;
     }
 
-    function getTrackingInfoByGroupNumber(groupNumber) {
-        var info = { revision: '', groupMemo: '' };
-        if (!groupNumber) {
-            return info;
-        }
-
-        var trackingSearch = search.create({
-            type: CUSTOM_REC_TYPE,
-            filters: [[CREC_GROUP_NUMBER, 'is', groupNumber]],
-            columns: [
-                search.createColumn({ name: CREC_REVISION_NUMBER }),
-                search.createColumn({ name: CREC_MASTER_MEMO })
-            ]
-        });
-
-        runSearch(trackingSearch, 1, function (result) {
-            info.revision = result.getValue({ name: CREC_REVISION_NUMBER }) || '';
-            info.groupMemo = result.getValue({ name: CREC_MASTER_MEMO }) || '';
-        });
-
-        return info;
-    }
-
     function formatMoney(value) {
         if (value === null || value === undefined || value === '') {
             return '';
@@ -941,7 +928,7 @@ define([
     }
 
     function processSelectedPOs(options) {
-        var response = { sent: [], created: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', groupMemo: '', customMemoMap: {}, actionMode: '' };
+        var response = { sent: [], created: [], skipped: [], errors: [], updatedIds: [], groupNumber: '', groupMemo: '', groupRecordId: '', groupRecordUrl: '', customMemoMap: {}, actionMode: '' };
         var selectedIds = parseIds(options.selectedIdsText);
         var selectedPOs = selectedIds.length ? loadPOsByIds(selectedIds) : [];
         var customMemoMap = options.customMemoMap || {};
@@ -1057,15 +1044,18 @@ define([
             });
 
             var groupid = tracking.id;
+            var groupRecordUrl = getGroupRecordUrl(groupid);
 
             if (createOnly) {
                 stampPurchaseOrders(poIds, groupNumber, customMemoMap, false, groupid);
                 response.updatedIds = poIds;
                 response.groupNumber = groupNumber;
                 response.groupMemo = groupMemo;
+                response.groupRecordId = groupid;
+                response.groupRecordUrl = groupRecordUrl;
                 response.customMemoMap = customMemoMap;
                 response.actionMode = actionMode;
-                response.created.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Group Number: ' + groupNumber + ' | Email not sent because vendor is not enabled for grouped PO email.');
+                response.created.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Email not sent because vendor is not enabled for grouped PO email.');
                 return response;
             }
 
@@ -1094,13 +1084,17 @@ define([
             response.updatedIds = poIds;
             response.groupNumber = groupNumber;
             response.groupMemo = groupMemo;
+            response.groupRecordId = groupid;
+            response.groupRecordUrl = groupRecordUrl;
             response.customMemoMap = customMemoMap;
             response.actionMode = actionMode;
-            response.sent.push(firstVendorName + ' - ' + poNumbers.join(', ') + ' | Group Number: ' + groupNumber);
+            response.sent.push(firstVendorName + ' - ' + poNumbers.join(', '));
         } catch (e) {
             log.error('PO Email Process Failed', { groupNumber: groupNumber, vendorId: firstVendorId, poNumbers: poNumbers, error: e });
 
             if (tracking && tracking.id) {
+                response.groupRecordId = tracking.id;
+                response.groupRecordUrl = getGroupRecordUrl(tracking.id);
                 if (mergedPdf && !pdfAttached) {
                     attachGeneratedPdfToTrackingRecord(tracking.id, mergedPdf);
                 }
@@ -1476,6 +1470,8 @@ function renderGroupedPoRecordPdf(trackingRecordId) {
             var groupNumber = result.getValue({ name: CREC_GROUP_NUMBER }) || '';
             if (groupNumber && !map[groupNumber]) {
                 map[groupNumber] = {
+                    recordId: result.id || '',
+                    recordUrl: getGroupRecordUrl(result.id),
                     dateSent: result.getValue({ name: CREC_DATE_SENT }) || '',
                     statusId: result.getValue({ name: CREC_EMAIL_STATUS }) || '',
                     groupMemo: result.getValue({ name: CREC_MASTER_MEMO }) || ''
