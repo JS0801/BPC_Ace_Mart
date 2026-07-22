@@ -7,10 +7,20 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
     var FIELD_PO_NUMBER = 'custrecord_po_number';
     var FIELD_PO_DETAILS = 'custrecord_bpc_po_details';
+    var FIELD_INACTIVE = 'isinactive';
+    var FIELD_GROUP_NUMBER = 'custrecord_group_number';
+
+    var PO_FIELD_GROUP_NUMBER = 'custbody_group_number';
+    var PO_FIELD_VENDOR_MEMO = 'custbody_vendor_memo';
 
     function afterSubmit(context) {
         if (context.type === context.UserEventType.DELETE) {
             return;
+        }
+        try {
+          clearInactiveOrRemovedPoLinks(context);
+        } catch (cleanupErr) {
+          log.error('Grouped PO Link Cleanup Failed', cleanupErr);
         }
 
         try {
@@ -111,6 +121,89 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
 
         return out;
     }
+
+
+  function clearInactiveOrRemovedPoLinks(context) {
+    if (!context.oldRecord || !context.newRecord) {
+        return;
+    }
+
+    var oldPoIds = getPoIds(context.oldRecord.getValue({ fieldId: FIELD_PO_NUMBER }));
+    var newPoIds = getPoIds(context.newRecord.getValue({ fieldId: FIELD_PO_NUMBER }));
+    var isInactive = isChecked(context.newRecord.getValue({ fieldId: FIELD_INACTIVE }));
+    var groupNumber = context.oldRecord.getValue({ fieldId: FIELD_GROUP_NUMBER }) ||
+        context.newRecord.getValue({ fieldId: FIELD_GROUP_NUMBER }) ||
+        '';
+
+    if (!oldPoIds.length) {
+        return;
+    }
+
+    if (isInactive) {
+        clearPoFields(oldPoIds, groupNumber);
+        return;
+    }
+
+    var removedPoIds = getRemovedPoIds(oldPoIds, newPoIds);
+    if (removedPoIds.length) {
+        clearPoFields(removedPoIds, groupNumber);
+    }
+}
+
+function getRemovedPoIds(oldPoIds, newPoIds) {
+    var newMap = {};
+    var removed = [];
+
+    for (var i = 0; i < newPoIds.length; i++) {
+        newMap[String(newPoIds[i])] = true;
+    }
+
+    for (var j = 0; j < oldPoIds.length; j++) {
+        var oldId = String(oldPoIds[j]);
+        if (!newMap[oldId]) {
+            removed.push(oldId);
+        }
+    }
+
+    return removed;
+}
+
+function clearPoFields(poIds, expectedGroupNumber) {
+    for (var i = 0; i < poIds.length; i++) {
+        var poId = poIds[i];
+
+        if (expectedGroupNumber && !poMatchesGroup(poId, expectedGroupNumber)) {
+            continue;
+        }
+
+        record.submitFields({
+            type: record.Type.PURCHASE_ORDER,
+            id: poId,
+            values: {
+                custbody_group_number: '',
+                custbody_vendor_memo: ''
+            },
+            options: {
+                enableSourcing: false,
+                ignoreMandatoryFields: true
+            }
+        });
+    }
+}
+
+function poMatchesGroup(poId, expectedGroupNumber) {
+    var lookup = search.lookupFields({
+        type: search.Type.PURCHASE_ORDER,
+        id: poId,
+        columns: [PO_FIELD_GROUP_NUMBER]
+    });
+
+    return String(lookup[PO_FIELD_GROUP_NUMBER] || '') === String(expectedGroupNumber || '');
+}
+
+function isChecked(value) {
+    return value === true || value === 'T';
+}
 
     function sortBySelectedPoOrder(rows, poIds) {
         var order = {};
