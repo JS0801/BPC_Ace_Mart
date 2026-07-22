@@ -319,13 +319,13 @@ define([
         var subsidiarySearch = search.create({
             type: search.Type.SUBSIDIARY,
             filters: [['isinactive', 'is', 'F']],
-            columns: [search.createColumn({ name: 'name', sort: search.Sort.ASC })]
+            columns: [search.createColumn({ name: 'namenohierarchy', sort: search.Sort.ASC })]
         });
 
         runSearch(subsidiarySearch, MAX_SUBSIDIARY_OPTION_ROWS, function (result) {
             options.push({
                 id: result.id,
-                text: result.getValue({ name: 'name' }) || ''
+                text: result.getValue({ name: 'namenohierarchy' }) || ''
             });
         });
 
