@@ -45,6 +45,11 @@
     .po-input,.po-date,.po-select,.po-textarea{border:1px solid #cbd5e1;border-radius:10px;background:#fff;padding:10px 11px;font-weight:700;color:#111827;min-height:42px;box-sizing:border-box;box-shadow:0 1px 2px rgba(15,23,42,.03);}
     .po-search-input{width:100%;}
     .po-textarea{width:100%;min-height:115px;font-weight:600;resize:vertical;line-height:1.48;}
+    .po-rich-toolbar{display:flex;gap:6px;align-items:center;background:#f8fafc;border:1px solid #cbd5e1;border-bottom:0;border-radius:10px 10px 0 0;padding:7px;}
+    .po-rich-btn{width:32px;height:30px;border:1px solid #cbd5e1;background:#fff;border-radius:7px;font-size:13px;font-weight:900;color:#111827;cursor:pointer;}
+    .po-rich-btn:hover{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;}
+    .po-rich-editor{width:100%;min-height:140px;border:1px solid #cbd5e1;border-radius:0 0 10px 10px;background:#fff;padding:10px 11px;font-weight:600;color:#111827;line-height:1.48;box-sizing:border-box;box-shadow:0 1px 2px rgba(15,23,42,.03);overflow:auto;}
+    .po-rich-editor:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.20);}
     .po-help{font-size:12px;font-weight:700;color:#64748b;margin-top:8px;}
     .po-input:focus,.po-date:focus,.po-select:focus,.po-textarea:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.20);}
     .po-check-wrap{height:42px;display:flex;align-items:center;gap:9px;font-size:13px;font-weight:900;color:#111827;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0 11px;box-sizing:border-box;}
@@ -68,15 +73,13 @@
     .po-pill{display:inline-block;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:900;}
     .po-pill-sent{background:#dcfce7;color:#166534;border:1px solid #bbf7d0;}
     .po-pill-not{background:#fee2e2;color:#991b1b;border:1px solid #fecaca;}
-    .po-pill-grouped{background:#e0f2fe;color:#075985;border:1px solid #bae6fd;}
+    .po-pill-grouped{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
     .po-pill-failed{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;}
     .po-memo{max-width:360px;white-space:normal;word-break:break-word;color:#475569;line-height:1.45;}
     .po-group{white-space:nowrap;font-weight:800;color:#334155;}
-    .po-group-memo-input{width:100%;min-width:220px;min-height:54px;border:1px solid #cbd5e1;border-radius:9px;padding:7px 9px;font-size:12px;font-weight:600;color:#111827;resize:vertical;line-height:1.4;box-sizing:border-box;background:#fff;}
-    .po-group-memo-input:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.18);}
+    .po-custom-memo-input{width:100%;min-width:220px;min-height:42px;}
     .po-amount{text-align:right;font-weight:900;}
     .po-empty{padding:28px;text-align:center;color:#64748b;font-weight:800;background:#fff;border:1px dashed #cbd5e1;border-radius:12px;}
-    /* Custom searchable dropdown */
     .po-combo{position:relative;}
     .po-combo-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:1000;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,.14);max-height:260px;overflow:auto;display:none;}
     .po-combo-list.open{display:block;}
@@ -98,6 +101,7 @@
 
     <div class="po-container">
         <div id="resultMessageBox" class="po-result"></div>
+        <div id="vendorEmailNotice" class="po-result"></div>
 
         <div id="poInteractiveArea">
         <div class="po-action-bar">
@@ -141,12 +145,12 @@
                     </div>
 
                     <div class="po-fg">
-                        <div class="po-label">Transaction Date From</div>
+                        <div class="po-label">Date From</div>
                         <input class="po-date po-auto-filter" type="date" id="custpage_filter_date_from" name="custpage_filter_date_from">
                     </div>
 
                     <div class="po-fg">
-                        <div class="po-label">Transaction Date To</div>
+                        <div class="po-label">Date To</div>
                         <input class="po-date po-auto-filter" type="date" id="custpage_filter_date_to" name="custpage_filter_date_to">
                     </div>
 
@@ -162,17 +166,17 @@
                     </div>
 
                     <div class="po-fg">
+                        <div class="po-label">Group Number</div>
+                        <input class="po-input po-auto-filter-text" type="text" id="custpage_filter_group_number" name="custpage_filter_group_number" placeholder="VendorID_Date_Time">
+                    </div>
+
+                    <div class="po-fg">
                         <div class="po-label">Stock Purchase Order</div>
                         <select class="po-select po-auto-filter" id="custpage_filter_stock_po" name="custpage_filter_stock_po">
                             <option value="">All</option>
                             <option value="yes">Yes</option>
                             <option value="no">No</option>
                         </select>
-                    </div>
-
-                    <div class="po-fg">
-                        <div class="po-label">Group Number</div>
-                        <input class="po-input po-auto-filter-text" type="text" id="custpage_filter_group_number" name="custpage_filter_group_number" placeholder="VendorID_Date_Time">
                     </div>
                 </div>
 
@@ -189,16 +193,22 @@
             </summary>
             <div class="po-memo-body">
                 <div class="po-label">Email Subject</div>
-                <input class="po-input" style="width:100%;" type="text" id="custpage_email_subject" name="custpage_email_subject" placeholder="Leave blank to use the default subject (Purchase Order - PO123, PO124...)">
-                <div class="po-help">If blank, the default subject "Purchase Order - &lt;PO numbers&gt;" is used.</div>
+                <input class="po-input" style="width:100%;" type="text" id="custpage_email_subject" name="custpage_email_subject" placeholder="Optional email subject">
 
                 <div class="po-label" style="margin-top:16px;">Email Body</div>
-                <textarea class="po-textarea" id="custpage_email_body_memo" name="custpage_email_body_memo" placeholder="Type the email body message here. This is the text that goes in the email to the vendor."></textarea>
-                <div class="po-help">If blank, the script falls back to the saved Group Memo (for resend), otherwise a default message.</div>
+                <textarea id="custpage_email_body_memo" name="custpage_email_body_memo" style="display:none;"></textarea>
+                <div class="po-rich-toolbar">
+                    <button type="button" class="po-rich-btn" onclick="formatEmailBody('bold')">B</button>
+                    <button type="button" class="po-rich-btn" onclick="formatEmailBody('italic')"><i>I</i></button>
+                    <button type="button" class="po-rich-btn" onclick="formatEmailBody('underline')"><u>U</u></button>
+                    <button type="button" class="po-rich-btn" onclick="formatEmailBody('insertUnorderedList')">•</button>
+                    <button type="button" class="po-rich-btn" onclick="formatEmailBody('insertOrderedList')">1.</button>
+                </div>
+                <div id="emailBodyEditor" class="po-rich-editor" contenteditable="true"></div>
 
-                <div class="po-label" style="margin-top:16px;">Master Memo (Group Memo)</div>
-                <textarea class="po-textarea" id="custpage_master_memo" name="custpage_master_memo" placeholder="This Master Memo fills the Group Memo column for every selected PO."></textarea>
-                <div class="po-help">Master Memo is saved as a note on this batch's tracking record only - it no longer fills or overwrites any PO's Group Memo. Edit each PO's Group Memo directly in its own box in the table below.</div>
+                <div class="po-label" style="margin-top:16px;">Group Memo</div>
+                <textarea class="po-textarea" id="custpage_master_memo" name="custpage_master_memo" placeholder="Required for new grouped POs. Selecting an existing group loads its saved memo here."></textarea>
+                <div class="po-help">This memo is saved on the grouped tracking record. Use Custom Memo in the table for PO-level notes.</div>
             </div>
         </details>
 
@@ -241,6 +251,7 @@
     var SUBSIDIARY_OPTIONS = {{SUBSIDIARY_OPTIONS_JSON}};
     var LOCATION_OPTIONS = {{LOCATION_OPTIONS_JSON}};
     var VENDOR_OPTIONS = {{VENDOR_OPTIONS_JSON}};
+    var EMAIL_TEMPLATE = {{EMAIL_TEMPLATE_JSON}};
     var RESULT_MESSAGE = {{RESULT_MESSAGE_JSON}};
     var EMAIL_BODY_MEMO = {{EMAIL_BODY_MEMO_JSON}};
     var EMAIL_SUBJECT = {{EMAIL_SUBJECT_JSON}};
@@ -251,17 +262,18 @@
         { label: 'PO Number', key: 'tranId', type: 'string', style: 'width:130px;' },
         { label: 'Vendor', key: 'vendorName', type: 'string' },
         { label: 'Vendor Email', key: 'vendorEmail', type: 'string' },
-        { label: 'Transaction Date', key: 'tranDate', type: 'date', style: 'width:150px;' },
-        { label: 'Stock PO', key: 'stockPo', type: 'bool', style: 'width:90px;' },
+        { label: 'PO Date', key: 'tranDate', type: 'date', style: 'width:150px;' },
         { label: 'Email Sent Date', key: 'emailSentDate', type: 'date', style: 'width:150px;' },
+        { label: 'Stock Purchase Order', key: 'stockPo', type: 'bool', style: 'width:150px;' },
         { label: 'Group Number', key: 'groupNumber', type: 'string' },
         { label: 'Native Memo', key: 'memo', type: 'string' },
-        { label: 'Group Memo', key: 'vendorMemo', type: 'string' },
+        { label: 'Custom Memo', key: 'vendorMemo', type: 'string' },
         { label: 'Amount', key: 'amount', type: 'number', style: 'width:120px;text-align:right;' }
     ];
 
     var poSortState = { key: null, type: null, dir: 1 };
     var poById = {};
+    var memoSelectionMode = '';
 
     function getField(id) {
         return document.getElementById(id);
@@ -282,6 +294,26 @@
 
     function convertTextToHtml(value) {
         return escapeHtml(value || '').replace(/\n/g, '<br/>');
+    }
+
+    function renderRecordLink(text, href) {
+        if (!text) {
+            return '';
+        }
+
+        if (!href) {
+            return escapeHtml(text);
+        }
+
+        return '<a class="po-link" href="' + escapeHtml(href) + '" target="_blank">' + escapeHtml(text) + '</a>';
+    }
+
+    function renderResultGroupLink(resultMessage) {
+        if (!resultMessage || !resultMessage.groupNumber) {
+            return '';
+        }
+
+        return '<div style="margin-top:6px;">Group: ' + renderRecordLink(resultMessage.groupNumber, resultMessage.groupRecordUrl || '') + '</div>';
     }
 
     function clearChangedFlag() {
@@ -314,12 +346,6 @@
             area.classList.remove('po-disabled');
         }
 
-        // pointer-events:none (via the class above) stops clicks, but a field
-        // that already had keyboard focus before loading started could still
-        // be typed into - so also explicitly disable every control. This
-        // covers filters, combos, date pickers, memo/subject boxes, the
-        // Send/Refresh/Clear/Mark-All buttons, and any PO row checkboxes or
-        // per-row Group Memo boxes currently in the table.
         var elements = area.querySelectorAll('input, select, textarea, button');
         for (var i = 0; i < elements.length; i++) {
             elements[i].disabled = !!flag;
@@ -359,11 +385,29 @@
 
         var html = '';
 
+        if (resultMessage.notice && resultMessage.notice.length > 0) {
+            html += '<div class="po-msg po-info"><b>Notice</b><br/>';
+            for (var n = 0; n < resultMessage.notice.length; n++) {
+                html += escapeHtml(resultMessage.notice[n]) + '<br/>';
+            }
+            html += '</div>';
+        }
+
+        if (resultMessage.created && resultMessage.created.length > 0) {
+            html += '<div class="po-msg po-success"><b>Group Created / Updated</b><br/>';
+            for (var c = 0; c < resultMessage.created.length; c++) {
+                html += escapeHtml(resultMessage.created[c]) + '<br/>';
+            }
+            html += renderResultGroupLink(resultMessage);
+            html += '</div>';
+        }
+
         if (resultMessage.sent && resultMessage.sent.length > 0) {
             html += '<div class="po-msg po-success"><b>Sent Successfully</b><br/>';
             for (var i = 0; i < resultMessage.sent.length; i++) {
                 html += escapeHtml(resultMessage.sent[i]) + '<br/>';
             }
+            html += renderResultGroupLink(resultMessage);
             html += '</div>';
         }
 
@@ -434,6 +478,49 @@
         }
     }
 
+    function syncEmailBodyToHidden() {
+        var editor = getField('emailBodyEditor');
+        var hidden = getField(FIELD_IDS.emailBodyMemo);
+        if (editor && hidden) {
+            hidden.value = editor.innerHTML || '';
+        }
+    }
+
+    function setEmailBodyHtml(value) {
+        var editor = getField('emailBodyEditor');
+        var hidden = getField(FIELD_IDS.emailBodyMemo);
+        if (editor) {
+            editor.innerHTML = value || '';
+        }
+        if (hidden) {
+            hidden.value = value || '';
+        }
+    }
+
+    function richTextHasContent(value) {
+        return !!String(value || '')
+            .replace(/<br\s*\/?>/gi, ' ')
+            .replace(/<\/(p|div|li|tr|h[1-6])>/gi, ' ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;|&#160;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;/gi, "'")
+            .replace(/\s+/g, ' ')
+            .replace(/^\s+|\s+$/g, '');
+    }
+
+    function formatEmailBody(command) {
+        var editor = getField('emailBodyEditor');
+        if (editor) {
+            editor.focus();
+            document.execCommand(command, false, null);
+            syncEmailBodyToHidden();
+        }
+    }
+
     function applyInitialValues() {
         renderSelectOptions(FIELD_IDS.subsidiary, SUBSIDIARY_OPTIONS, 'Select Subsidiary');
         renderSelectOptions(FIELD_IDS.location, LOCATION_OPTIONS, 'Select Warehouse Location');
@@ -445,13 +532,10 @@
         setValue(FIELD_IDS.vendorText, FILTERS.vendorText || getSelectedOptionText(VENDOR_OPTIONS, FILTERS.vendorId));
         setValue(FIELD_IDS.dateFrom, FILTERS.dateFrom || '');
         setValue(FIELD_IDS.dateTo, FILTERS.dateTo || '');
-        // Default Email Status to "Not Sent" so that once ANY other filter is
-        // applied (vendor, PO, date, etc.) without the user explicitly
-        // touching this dropdown, only Not Sent POs show up by default.
         setValue(FIELD_IDS.emailStatus, FILTERS.emailStatus || 'not_sent');
         setValue(FIELD_IDS.stockPo, FILTERS.stockPo || '');
         setValue(FIELD_IDS.groupNumber, FILTERS.groupNumber || '');
-        setValue(FIELD_IDS.emailBodyMemo, EMAIL_BODY_MEMO || '');
+        setEmailBodyHtml(EMAIL_BODY_MEMO || '');
         setValue(FIELD_IDS.emailSubject, EMAIL_SUBJECT || '');
         updateLocationEnabledState();
     }
@@ -470,7 +554,43 @@
         return '';
     }
 
-    /* ---------- Custom searchable dropdown (fixes the datalist filtering bug) ---------- */
+    function getVendorOptionById(vendorId) {
+        for (var i = 0; i < (VENDOR_OPTIONS || []).length; i++) {
+            if (String(VENDOR_OPTIONS[i].id || '') === String(vendorId || '')) {
+                return VENDOR_OPTIONS[i];
+            }
+        }
+        return null;
+    }
+
+    function setPrimaryActionLabel(label) {
+        var btn = getField('sendEmailBtn');
+        if (btn) {
+            btn.innerHTML = label || 'Send Email';
+        }
+    }
+
+    function clearVendorEmailNotice() {
+        var box = getField('vendorEmailNotice');
+        if (box) {
+            box.innerHTML = '';
+            box.style.display = 'none';
+        }
+        setPrimaryActionLabel('Send Email');
+    }
+
+    function showVendorEmailNotice() {
+        clearVendorEmailNotice();
+        var vendorId = getField(FIELD_IDS.vendor) ? getField(FIELD_IDS.vendor).value : '';
+        var vendor = getVendorOptionById(vendorId);
+        var box = getField('vendorEmailNotice');
+
+        if (box && vendor && !vendor.sendPoEmail) {
+            box.innerHTML = '<div class="po-msg po-info"><b>Notice</b><br/>Email will not be sent because this vendor is not setup for grouped PO email. The group will be created or updated only.</div>';
+            box.style.display = 'block';
+            setPrimaryActionLabel('Create Group');
+        }
+    }
 
     function closestClass(el, cls) {
         while (el && el.nodeType === 1) {
@@ -505,18 +625,6 @@
             return;
         }
 
-        function setHiddenFromExact() {
-            var v = textEl.value || '';
-            hiddenEl.value = '';
-            var opts = getOptions() || [];
-            for (var i = 0; i < opts.length; i++) {
-                if (String(opts[i].text || '') === v) {
-                    hiddenEl.value = opts[i].id || '';
-                    break;
-                }
-            }
-        }
-
         function renderList(query) {
             var opts = comboFilterOptions(getOptions(), query);
             if (!opts.length) {
@@ -540,22 +648,18 @@
             listEl.classList.remove('open');
         }
 
-        // Focus/click always shows the FULL list, so a value already in the box
-        // never hides the other options. Typing filters from there.
         textEl.addEventListener('focus', function () { openList(true); });
         textEl.addEventListener('click', function () { openList(true); });
 
         textEl.addEventListener('input', function () {
-            setHiddenFromExact();
+            hiddenEl.value = '';
             openList(false);
-            if (onSelect) { onSelect(); }
         });
 
         textEl.addEventListener('blur', function () {
             setTimeout(closeList, 160);
         });
 
-        // mousedown beats the input's blur, so the click registers
         listEl.addEventListener('mousedown', function (e) {
             var opt = closestClass(e.target, 'po-combo-opt');
             if (!opt) {
@@ -578,10 +682,6 @@
         return count;
     }
 
-    // Section header badge always shows the total loaded records.
-    // The list badge (next to "Select purchase orders to send") shows how
-    // many are actually checked right now - these two used to display the
-    // exact same number, which was confusing.
     function updatePoCounts() {
         var total = (PO_DATA || []).length;
         var selected = getCheckedRowCount();
@@ -592,24 +692,6 @@
         var c2 = getField('poListCount');
         if (c1) { c1.innerHTML = totalText; }
         if (c2) { c2.innerHTML = selectedText; }
-    }
-
-    function getPoStatusMeta(po) {
-        var status = String((po && po.emailStatus) || '').toLowerCase();
-
-        if (status === 'failed') {
-            return { text: 'Failed', className: 'po-pill po-pill-failed' };
-        }
-
-        if (status === 'grouped') {
-            return { text: 'Grouped', className: 'po-pill po-pill-grouped' };
-        }
-
-        if (status === 'sent' || (po && po.emailSent)) {
-            return { text: 'Sent', className: 'po-pill po-pill-sent' };
-        }
-
-        return { text: 'Not Sent', className: 'po-pill po-pill-not' };
     }
 
     function renderTable(poData) {
@@ -658,13 +740,25 @@
 
         for (var i = 0; i < poData.length; i++) {
             var po = poData[i] || {};
-            var statusMeta = getPoStatusMeta(po);
+            var status = po.emailStatus || (po.emailSent ? 'sent' : (po.groupNumber ? 'grouped' : 'not_sent'));
+            var sentClass = 'po-pill po-pill-not';
+            var sentText = 'Not Sent';
+            if (status === 'sent') {
+                sentClass = 'po-pill po-pill-sent';
+                sentText = 'Sent';
+            } else if (status === 'grouped') {
+                sentClass = 'po-pill po-pill-grouped';
+                sentText = 'Grouped';
+            } else if (status === 'failed') {
+                sentClass = 'po-pill po-pill-failed';
+                sentText = 'Failed';
+            }
             var sentValue = po.emailSent ? 'T' : 'F';
             var poIdAttr = escapeHtml(po.poId || '');
 
             html += '<tr data-poid="' + poIdAttr + '">';
-            html += '<td><input type="checkbox" class="po-row-check"' + (po._checked ? ' checked' : '') + ' value="' + poIdAttr + '" data-sent="' + sentValue + '" data-vendor="' + escapeHtml(po.vendorId || '') + '" data-vendorname="' + escapeHtml(po.vendorName || '') + '" data-vendoremail="' + escapeHtml(po.vendorEmail || '') + '" data-group="' + escapeHtml(po.groupNumber || '') + '"></td>';
-            html += '<td class="po-status-cell"><span class="' + statusMeta.className + '">' + statusMeta.text + '</span></td>';
+            html += '<td><input type="checkbox" class="po-row-check"' + (po._checked ? ' checked' : '') + ' value="' + poIdAttr + '" data-sent="' + sentValue + '" data-vendor="' + escapeHtml(po.vendorId || '') + '" data-vendorname="' + escapeHtml(po.vendorName || '') + '" data-vendoremail="' + escapeHtml(po.vendorEmail || '') + '" data-sendpoemail="' + (po.vendorSendPoEmail ? 'T' : 'F') + '" data-group="' + escapeHtml(po.groupNumber || '') + '"></td>';
+            html += '<td class="po-status-cell"><span class="' + sentClass + '">' + sentText + '</span></td>';
 
             if (po.poUrl) {
                 html += '<td><a class="po-link" href="' + escapeHtml(po.poUrl) + '" target="_blank">' + escapeHtml(po.tranId || '') + '</a></td>';
@@ -672,14 +766,14 @@
                 html += '<td><b>' + escapeHtml(po.tranId || '') + '</b></td>';
             }
 
-            html += '<td>' + escapeHtml(po.vendorName || '') + '</td>';
+            html += '<td>' + renderRecordLink(po.vendorName || '', po.vendorUrl || '') + '</td>';
             html += '<td>' + escapeHtml(po.vendorEmail || '') + '</td>';
             html += '<td>' + escapeHtml(po.tranDate || '') + '</td>';
-            html += '<td>' + (po.stockPo ? 'Yes' : 'No') + '</td>';
             html += '<td class="po-sentdate-cell">' + escapeHtml(po.emailSentDate || '') + '</td>';
-            html += '<td class="po-group po-group-cell">' + escapeHtml(po.groupNumber || '') + '</td>';
+            html += '<td>' + (po.stockPo ? 'Yes' : 'No') + '</td>';
+            html += '<td class="po-group po-group-cell">' + renderRecordLink(po.groupNumber || '', po.groupRecordUrl || '') + '</td>';
             html += '<td class="po-memo">' + convertTextToHtml(po.memo || '') + '</td>';
-            html += '<td><textarea class="po-group-memo-input" data-poid="' + poIdAttr + '" placeholder="Group memo...">' + escapeHtml(po.vendorMemo || '') + '</textarea></td>';
+            html += '<td><input class="po-input po-custom-memo-input" type="text" data-poid="' + poIdAttr + '" value="' + escapeHtml(po.vendorMemo || '') + '"></td>';
             html += '<td class="po-amount">' + escapeHtml(formatCurrency(po.amount)) + '</td>';
             html += '</tr>';
         }
@@ -690,8 +784,6 @@
         bindRowEvents();
         bindHeaderSort();
     }
-
-    /* ---------- Sorting ---------- */
 
     function toNumber(v) {
         var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
@@ -755,10 +847,46 @@
         }
     }
 
-    /* ---------- Row events (checkbox state + group select + group memo edits) ---------- */
-
     function findPoById(id) {
         return poById[String(id)] || null;
+    }
+
+    function syncGroupMemoFromSelection() {
+        var boxes = document.getElementsByClassName('po-row-check');
+        var firstGroupedMemo = '';
+        var hasGrouped = false;
+        var hasUngrouped = false;
+
+        for (var i = 0; i < boxes.length; i++) {
+            if (!boxes[i].checked) { continue; }
+
+            var po = findPoById(boxes[i].value);
+            if (boxes[i].getAttribute('data-group') || '') {
+                hasGrouped = true;
+                if (!firstGroupedMemo && po) {
+                    firstGroupedMemo = po.groupMemo || '';
+                }
+            } else {
+                hasUngrouped = true;
+            }
+        }
+
+        if (hasGrouped && !hasUngrouped) {
+            setValue(FIELD_IDS.masterMemo, firstGroupedMemo);
+            memoSelectionMode = 'grouped';
+            return;
+        }
+
+        if (hasUngrouped && !hasGrouped && memoSelectionMode !== 'new') {
+            setValue(FIELD_IDS.masterMemo, '');
+            memoSelectionMode = 'new';
+            return;
+        }
+
+        if (!hasGrouped && !hasUngrouped) {
+            setValue(FIELD_IDS.masterMemo, '');
+            memoSelectionMode = '';
+        }
     }
 
     function bindRowEvents() {
@@ -773,6 +901,8 @@
                 var group = this.getAttribute('data-group') || '';
                 if (!group) {
                     updatePoCounts();
+                    syncGroupMemoFromSelection();
+                    scheduleEmailTemplateRefresh();
                     return;
                 }
 
@@ -785,29 +915,22 @@
                     }
                 }
                 updatePoCounts();
+                syncGroupMemoFromSelection();
+                scheduleEmailTemplateRefresh();
             });
         }
 
-        var memos = document.getElementsByClassName('po-group-memo-input');
-        for (var m = 0; m < memos.length; m++) {
-            memos[m].addEventListener('input', function () {
+        var customMemos = document.getElementsByClassName('po-custom-memo-input');
+        for (var m = 0; m < customMemos.length; m++) {
+            customMemos[m].addEventListener('input', function () {
                 var po = findPoById(this.getAttribute('data-poid'));
                 if (po) {
                     po.vendorMemo = this.value;
-                    po._memoEdited = true;
                 }
+                scheduleEmailTemplateRefresh();
             });
+            customMemos[m].addEventListener('change', scheduleEmailTemplateRefresh);
         }
-    }
-
-    /* ---------- Master Memo is now independent - it no longer maps into ---------- */
-    /* ---------- any PO's Group Memo box. It's captured and saved only    ---------- */
-    /* ---------- as a note on the tracking custom record (CREC_MASTER_MEMO).       */
-
-    function bindMasterMemo() {
-        // Intentionally a no-op now. Group Memo for each PO comes ONLY from
-        // that PO's own textarea in the table - Master Memo is never copied
-        // into it, on send or resend.
     }
 
     function getCurrentFilters() {
@@ -851,6 +974,7 @@
 
     function appendCommonParams(params, actionMode) {
         var filters = getCurrentFilters();
+        syncEmailBodyToHidden();
 
         params.append(FIELD_IDS.ajax, 'T');
         params.append(FIELD_IDS.ajaxAction, actionMode || 'filter');
@@ -871,7 +995,7 @@
         params.append(FIELD_IDS.masterMemo, getField(FIELD_IDS.masterMemo) ? getField(FIELD_IDS.masterMemo).value : '');
     }
 
-    function buildGroupMemoMap(selectedIds) {
+    function buildCustomMemoMap(selectedIds) {
         var map = {};
         for (var i = 0; i < selectedIds.length; i++) {
             var po = findPoById(selectedIds[i]);
@@ -880,15 +1004,124 @@
         return map;
     }
 
-    function callSuiteletAjax(actionMode, selectedIds, extra, callback) {
+    function getSelectedPOIds() {
+        var selected = [];
+        var boxes = document.getElementsByClassName('po-row-check');
+        for (var i = 0; i < boxes.length; i++) {
+            if (boxes[i].checked) {
+                selected.push(boxes[i].value);
+            }
+        }
+        return selected;
+    }
+
+    function getSelectedPOContextRows(selectedIds) {
+        var rows = [];
+        selectedIds = selectedIds || getSelectedPOIds();
+
+        for (var i = 0; i < selectedIds.length; i++) {
+            var po = findPoById(selectedIds[i]);
+            if (!po) { continue; }
+            rows.push({
+                poId: po.poId || '',
+                tranId: po.tranId || '',
+                poUrl: po.poUrl || '',
+                vendorId: po.vendorId || '',
+                vendorName: po.vendorName || '',
+                vendorUrl: po.vendorUrl || '',
+                vendorEmail: po.vendorEmail || '',
+                vendorSendPoEmail: !!po.vendorSendPoEmail,
+                tranDate: po.tranDate || '',
+                memo: po.memo || '',
+                vendorMemo: po.vendorMemo || '',
+                stockPo: !!po.stockPo,
+                groupNumber: po.groupNumber || '',
+                groupRecordId: po.groupRecordId || '',
+                groupRecordUrl: po.groupRecordUrl || '',
+                amount: po.amount || '',
+                emailSent: !!po.emailSent
+            });
+        }
+
+        return rows;
+    }
+
+    function buildEmailTemplateContextPayload(selectedIds) {
+        selectedIds = selectedIds || getSelectedPOIds();
+
+        var vendorId = getField(FIELD_IDS.vendor) ? getField(FIELD_IDS.vendor).value : '';
+        var vendor = getVendorOptionById(vendorId);
+        var rows = getSelectedPOContextRows(selectedIds);
+
+        if (!vendor && rows.length) {
+            vendor = {
+                id: rows[0].vendorId || '',
+                text: rows[0].vendorName || '',
+                poEmailAddress: rows[0].vendorEmail || ''
+            };
+        }
+
+        return {
+            selectedIds: selectedIds,
+            vendorId: vendor ? (vendor.id || vendorId || '') : vendorId,
+            vendorName: vendor ? (vendor.text || '') : '',
+            vendorEmail: vendor ? (vendor.poEmailAddress || '') : '',
+            groupMemo: getField(FIELD_IDS.masterMemo) ? getField(FIELD_IDS.masterMemo).value : '',
+            poList: rows
+        };
+    }
+
+    function applyEmailTemplate(emailTemplate) {
+        emailTemplate = emailTemplate || {};
+
+        if (emailTemplate.subject !== undefined) {
+            setValue(FIELD_IDS.emailSubject, emailTemplate.subject || '');
+        }
+
+        if (emailTemplate.body !== undefined) {
+            setEmailBodyHtml(emailTemplate.body || '');
+        }
+    }
+
+    function scheduleEmailTemplateRefresh(delayMs) {
+        if (window.poEmailTemplateTimer) {
+            clearTimeout(window.poEmailTemplateTimer);
+        }
+
+        window.poEmailTemplateTimer = setTimeout(function () {
+            runEmailTemplateAjax();
+        }, delayMs === 0 ? 0 : 250);
+    }
+
+    function runEmailTemplateAjax() {
+        callSuiteletAjax('merge_template', getSelectedPOIds(), function (err, response) {
+            if (err || !response || response.success === false) {
+                renderResultMessage({
+                    sent: [],
+                    skipped: [],
+                    errors: [err ? err.message : (response && response.message ? response.message : 'Unable to merge email template.')]
+                });
+                return;
+            }
+
+            applyEmailTemplate(response.emailTemplate || {
+                subject: response.emailSubject || '',
+                body: response.emailBody || ''
+            });
+        });
+    }
+
+    function callSuiteletAjax(actionMode, selectedIds, callback) {
         var xhr = new XMLHttpRequest();
         var params = new URLSearchParams();
 
         appendCommonParams(params, actionMode);
         params.append(FIELD_IDS.selectedIds, selectedIds ? selectedIds.join(',') : '');
-
-        if (extra && extra.groupMemoMap) {
-            params.append(FIELD_IDS.groupMemoMap, JSON.stringify(extra.groupMemoMap));
+        if (actionMode === 'merge_template' && FIELD_IDS.templateContext) {
+            params.append(FIELD_IDS.templateContext, JSON.stringify(buildEmailTemplateContextPayload(selectedIds || [])));
+        }
+        if (actionMode !== 'filter' && FIELD_IDS.customMemoMap) {
+            params.append(FIELD_IDS.customMemoMap, JSON.stringify(buildCustomMemoMap(selectedIds || [])));
         }
 
         xhr.open('POST', SUITELET_URL, true);
@@ -933,12 +1166,13 @@
             renderTable(PO_DATA);
             clearLoading();
             updateLocationEnabledState();
+            scheduleEmailTemplateRefresh();
             return;
         }
 
         showLoading(filters.locationId ? 'Loading purchase orders...' : 'Loading warehouse locations...');
 
-        callSuiteletAjax('filter', [], null, function (err, response) {
+        callSuiteletAjax('filter', [], function (err, response) {
             clearLoading();
 
             if (err || !response || response.success === false) {
@@ -959,12 +1193,14 @@
                 PO_OPTIONS = [];
                 poSortState = { key: null, type: null, dir: 1 };
                 renderTable(PO_DATA);
+                scheduleEmailTemplateRefresh();
                 return;
             }
 
             PO_OPTIONS = response.poOptions || [];
             poSortState = { key: null, type: null, dir: 1 };
             renderTable(response.poData || []);
+            scheduleEmailTemplateRefresh(0);
         });
     }
 
@@ -1012,13 +1248,16 @@
         }
 
         setValue(FIELD_IDS.emailStatus, 'not_sent');
+        clearVendorEmailNotice();
         LOCATION_OPTIONS = [];
         PO_OPTIONS = [];
         PO_DATA = [];
+        memoSelectionMode = '';
         poSortState = { key: null, type: null, dir: 1 };
         renderSelectOptions(FIELD_IDS.location, LOCATION_OPTIONS, 'Select Warehouse Location');
         updateLocationEnabledState();
         renderTable(PO_DATA);
+        scheduleEmailTemplateRefresh();
     }
 
     function handleSubsidiaryChange() {
@@ -1036,8 +1275,10 @@
         setValue(FIELD_IDS.poText, '');
         PO_OPTIONS = [];
         PO_DATA = [];
+        memoSelectionMode = '';
         poSortState = { key: null, type: null, dir: 1 };
         renderTable(PO_DATA);
+        scheduleEmailTemplateRefresh();
         runFilterAjax();
     }
 
@@ -1071,6 +1312,8 @@
             if (po) { po._checked = !!flag; }
         }
         updatePoCounts();
+        syncGroupMemoFromSelection();
+        scheduleEmailTemplateRefresh();
     }
 
     function clearPOFilters() {
@@ -1097,41 +1340,31 @@
             }
         }
 
-        // Email Status resets back to its "Not Sent" default rather than
-        // blank, consistent with the always-on default described above.
         setValue(FIELD_IDS.emailStatus, 'not_sent');
+        clearVendorEmailNotice();
 
         PO_DATA = [];
         PO_OPTIONS = [];
         LOCATION_OPTIONS = [];
+        memoSelectionMode = '';
         poSortState = { key: null, type: null, dir: 1 };
         renderSelectOptions(FIELD_IDS.location, LOCATION_OPTIONS, 'Select Warehouse Location');
         updateLocationEnabledState();
         renderTable(PO_DATA);
+        scheduleEmailTemplateRefresh();
     }
 
-    // Resend is now auto-detected from the selection itself (any checked row
-    // that already has a Group Number) instead of a separate "Show Grouped
-    // POs" checkbox, which has been removed.
-    function anySelectedRowHasGroup() {
-        var boxes = document.getElementsByClassName('po-row-check');
-        for (var i = 0; i < boxes.length; i++) {
-            if (boxes[i].checked && (boxes[i].getAttribute('data-group') || '')) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    function validateSelection(finalAction) {
+    function validateSelection() {
         var selected = [];
         var firstVendor = '';
         var differentVendor = false;
         var vendorEmailMissing = false;
-        var invalidSend = [];
-        var missingGroup = [];
+        var selectedVendorSendsEmail = false;
         var firstGroup = '';
         var differentGroup = false;
+        var hasGrouped = false;
+        var hasUngrouped = false;
+        var anySent = false;
         var boxes = document.getElementsByClassName('po-row-check');
 
         for (var i = 0; i < boxes.length; i++) {
@@ -1140,6 +1373,7 @@
 
                 var vendorId = boxes[i].getAttribute('data-vendor') || '';
                 var vendorEmail = boxes[i].getAttribute('data-vendoremail') || '';
+                var sendPoEmail = boxes[i].getAttribute('data-sendpoemail') === 'T';
                 var groupNumber = boxes[i].getAttribute('data-group') || '';
 
                 if (!firstVendor) {
@@ -1148,26 +1382,27 @@
                     differentVendor = true;
                 }
 
-                if (!vendorEmail) {
+                if (sendPoEmail && !vendorEmail) {
                     vendorEmailMissing = true;
                 }
 
-                if (finalAction === 'send') {
-                    if (boxes[i].getAttribute('data-sent') === 'T' || groupNumber) {
-                        invalidSend.push(boxes[i].value);
-                    }
+                if (sendPoEmail) {
+                    selectedVendorSendsEmail = true;
                 }
 
-                if (finalAction === 'resend') {
-                    if (!groupNumber) {
-                        missingGroup.push(boxes[i].value);
-                    }
+                if (boxes[i].getAttribute('data-sent') === 'T') {
+                    anySent = true;
+                }
 
+                if (groupNumber) {
+                    hasGrouped = true;
                     if (!firstGroup) {
                         firstGroup = groupNumber;
                     } else if (String(firstGroup) !== String(groupNumber)) {
                         differentGroup = true;
                     }
+                } else {
+                    hasUngrouped = true;
                 }
             }
         }
@@ -1184,19 +1419,36 @@
             return { valid: false, message: 'Vendor email address is missing.', selected: selected };
         }
 
-        if (finalAction === 'send' && invalidSend.length > 0) {
-            return { valid: false, message: 'Selected PO already has Email Sent or a Group Number. Select it alongside its group to resend instead.', selected: selected };
+        if (hasGrouped && hasUngrouped) {
+            return { valid: false, message: 'Grouped and ungrouped Purchase Orders cannot be sent together.', selected: selected };
         }
 
-        if (finalAction === 'resend' && missingGroup.length > 0) {
-            return { valid: false, message: 'Resend Group is allowed only for POs with Group Number populated.', selected: selected };
-        }
-
-        if (finalAction === 'resend' && differentGroup) {
+        if (hasGrouped && differentGroup) {
             return { valid: false, message: 'Different Group Numbers are selected. Please select only one Group Number at a time.', selected: selected };
         }
 
-        return { valid: true, message: '', selected: selected };
+        if (!(getField(FIELD_IDS.masterMemo) && getField(FIELD_IDS.masterMemo).value.replace(/^\s+|\s+$/g, ''))) {
+            return { valid: false, message: 'Group Memo is required.', selected: selected };
+        }
+
+        if (selectedVendorSendsEmail) {
+            syncEmailBodyToHidden();
+
+            var missingEmailFields = [];
+            var subjectField = getField(FIELD_IDS.emailSubject);
+            var bodyField = getField(FIELD_IDS.emailBodyMemo);
+            var emailSubject = subjectField ? subjectField.value : '';
+            var emailBody = bodyField ? bodyField.value : '';
+
+            if (!String(emailSubject).replace(/^\s+|\s+$/g, '')) missingEmailFields.push('Email Subject');
+            if (!richTextHasContent(emailBody)) missingEmailFields.push('Email Body');
+
+            if (missingEmailFields.length) {
+                return { valid: false, message: missingEmailFields.join(' and ') + (missingEmailFields.length > 1 ? ' are' : ' is') + ' required before sending email.', selected: selected };
+            }
+        }
+
+        return { valid: true, message: '', selected: selected, actionMode: hasGrouped && anySent ? 'resend' : 'send' };
     }
 
     function todayDisplay() {
@@ -1213,18 +1465,30 @@
         }
 
         var groupNumber = resultMessage.groupNumber || '';
+        var groupMemo = resultMessage.groupMemo || '';
+        var groupRecordId = resultMessage.groupRecordId || '';
+        var groupRecordUrl = resultMessage.groupRecordUrl || '';
+        var customMemoMap = resultMessage.customMemoMap || {};
         var isResend = resultMessage.actionMode === 'resend';
+        var isCreateGroup = resultMessage.actionMode === 'create_group';
 
         for (var i = 0; i < resultMessage.updatedIds.length; i++) {
             var poId = String(resultMessage.updatedIds[i]);
+            var customMemo = customMemoMap.hasOwnProperty(poId) ? customMemoMap[poId] : null;
 
             var po = findPoById(poId);
             if (po) {
-                po.emailSent = true;
-                po.emailStatus = 'sent';
+                po.emailSent = !isCreateGroup;
                 po.groupNumber = groupNumber;
+                po.groupMemo = groupMemo;
+                po.groupRecordId = groupRecordId;
+                po.groupRecordUrl = groupRecordUrl;
+                po.emailStatus = isCreateGroup ? 'grouped' : 'sent';
+                if (customMemo !== null) {
+                    po.vendorMemo = customMemo || '';
+                }
                 po._checked = false;
-                if (!isResend && !po.emailSentDate) {
+                if (!isResend && !isCreateGroup && !po.emailSentDate) {
                     po.emailSentDate = todayDisplay();
                 }
             }
@@ -1235,26 +1499,28 @@
             var check = row.querySelector('.po-row-check');
             var statusCell = row.querySelector('.po-status-cell');
             var groupCell = row.querySelector('.po-group-cell');
+            var customMemoInput = row.querySelector('.po-custom-memo-input');
             var sentDateCell = row.querySelector('.po-sentdate-cell');
 
             if (check) {
                 check.checked = false;
-                check.setAttribute('data-sent', 'T');
+                check.setAttribute('data-sent', isCreateGroup ? 'F' : 'T');
                 check.setAttribute('data-group', groupNumber);
             }
 
             if (statusCell) {
-                statusCell.innerHTML = '<span class="po-pill po-pill-sent">Sent</span>';
+                statusCell.innerHTML = isCreateGroup ? '<span class="po-pill po-pill-grouped">Grouped</span>' : '<span class="po-pill po-pill-sent">Sent</span>';
             }
 
             if (groupCell && groupNumber) {
-                groupCell.innerHTML = escapeHtml(groupNumber);
+                groupCell.innerHTML = renderRecordLink(groupNumber, groupRecordUrl);
             }
 
-            // Same optimistic-update approach as the Group Number cell above -
-            // no page refresh needed to see the Email Sent Date. Only stamped
-            // on the initial send (resend never overwrites it).
-            if (sentDateCell && !isResend && po && po.emailSentDate) {
+            if (customMemoInput && customMemo !== null) {
+                customMemoInput.value = customMemo || '';
+            }
+
+            if (sentDateCell && !isResend && !isCreateGroup && po && po.emailSentDate) {
                 sentDateCell.innerHTML = escapeHtml(po.emailSentDate);
             }
         }
@@ -1264,9 +1530,6 @@
 
     function hardRefreshPage() {
         clearChangedFlag();
-        // Force a genuine round-trip back to the server (not a cached AJAX
-        // state) - append a cache-busting param so the browser doesn't serve
-        // a stale copy of this Suitelet page.
         var url = window.location.href.split('#')[0];
         var sep = url.indexOf('?') > -1 ? '&' : '?';
         window.location.href = url + sep + '_refresh=' + new Date().getTime();
@@ -1274,22 +1537,16 @@
 
     function clearEmailComposeFields() {
         setValue(FIELD_IDS.emailSubject, '');
-        setValue(FIELD_IDS.emailBodyMemo, '');
+        setEmailBodyHtml('');
         setValue(FIELD_IDS.masterMemo, '');
     }
 
     function submitPOAction(actionMode) {
-        var finalAction = actionMode;
-
-        if (actionMode === 'send' && anySelectedRowHasGroup()) {
-            finalAction = 'resend';
-        }
-
         clearResultMessage();
         clearLoading();
         clearChangedFlag();
 
-        var validation = validateSelection(finalAction);
+        var validation = validateSelection();
         if (!validation.valid) {
             renderResultMessage({
                 sent: [],
@@ -1299,13 +1556,11 @@
             return false;
         }
 
-        showLoading(finalAction === 'resend' ? 'Resending email...' : 'Sending email...');
+        var finalAction = validation.actionMode || actionMode || 'send';
+        var loadingText = finalAction === 'resend' ? 'Processing grouped email...' : 'Processing purchase orders...';
+        showLoading(loadingText);
 
-        var extra = {
-            groupMemoMap: buildGroupMemoMap(validation.selected)
-        };
-
-        callSuiteletAjax(finalAction, validation.selected, extra, function (err, response) {
+        callSuiteletAjax(finalAction, validation.selected, function (err, response) {
             clearLoading();
 
             if (err || !response) {
@@ -1321,11 +1576,6 @@
                 renderResultMessage(response.resultMessage);
                 markRowsAsSent(response.resultMessage);
 
-                // A successful send just persisted this Subject/Body/Master
-                // Memo onto the tracking record - leaving them in the boxes
-                // would silently carry over to whatever vendor/PO is
-                // selected next. Clear them once the send fully succeeds
-                // (no errors) so the next send starts from a clean slate.
                 if (response.resultMessage.errors && response.resultMessage.errors.length === 0) {
                     clearEmailComposeFields();
                 }
@@ -1350,12 +1600,44 @@
 
         setupCombo(FIELD_IDS.vendorText, FIELD_IDS.vendor, FIELD_IDS.vendor + '_list', function () {
             return VENDOR_OPTIONS || [];
-        }, scheduleAutoFilter);
+        }, function () {
+            showVendorEmailNotice();
+            scheduleEmailTemplateRefresh();
+            scheduleAutoFilter();
+        });
+
+        var vendorText = getField(FIELD_IDS.vendorText);
+        if (vendorText) {
+            vendorText.addEventListener('input', function () {
+                clearVendorEmailNotice();
+                scheduleEmailTemplateRefresh();
+            });
+        }
+
+        var emailEditor = getField('emailBodyEditor');
+        if (emailEditor) {
+            emailEditor.addEventListener('input', syncEmailBodyToHidden);
+            emailEditor.addEventListener('blur', syncEmailBodyToHidden);
+        }
+
+        var masterMemo = getField(FIELD_IDS.masterMemo);
+        if (masterMemo) {
+            masterMemo.addEventListener('input', scheduleEmailTemplateRefresh);
+            masterMemo.addEventListener('change', scheduleEmailTemplateRefresh);
+        }
 
         renderTable(PO_DATA || []);
         renderResultMessage(RESULT_MESSAGE);
+        if (!RESULT_MESSAGE && EMAIL_TEMPLATE && EMAIL_TEMPLATE.error) {
+            renderResultMessage({
+                sent: [],
+                skipped: [],
+                errors: [EMAIL_TEMPLATE.error]
+            });
+        } else if (!RESULT_MESSAGE) {
+            showVendorEmailNotice();
+        }
         bindAutoFilters();
-        bindMasterMemo();
         clearChangedFlag();
     }
 
