@@ -80,6 +80,7 @@ define([
     var FLD_EMAIL_BODY_MEMO = 'custpage_email_body_memo';
     var FLD_GROUP_MEMO = 'custpage_master_memo';
     var FLD_CUSTOM_MEMO_MAP = 'custpage_custom_memo_map';
+    var FLD_TEMPLATE_CONTEXT = 'custpage_email_template_context';
     var FLD_AJAX = 'custpage_ajax';
     var FLD_AJAX_ACTION = 'custpage_ajax_action';
 
@@ -119,7 +120,8 @@ define([
                         selectedIdsText: params[FLD_SELECTED_IDS] || '',
                         filters: filters,
                         groupMemo: params[FLD_GROUP_MEMO] || '',
-                        customMemoMap: parseJsonObject(params[FLD_CUSTOM_MEMO_MAP])
+                        customMemoMap: parseJsonObject(params[FLD_CUSTOM_MEMO_MAP]),
+                        templateContext: parseJsonObject(params[FLD_TEMPLATE_CONTEXT])
                     });
 
                     writeJson(context, {
@@ -234,6 +236,7 @@ define([
             emailSubject: FLD_EMAIL_SUBJECT,
             masterMemo: FLD_GROUP_MEMO,
             customMemoMap: FLD_CUSTOM_MEMO_MAP,
+            templateContext: FLD_TEMPLATE_CONTEXT,
             ajax: FLD_AJAX,
             ajaxAction: FLD_AJAX_ACTION
         };
@@ -579,8 +582,9 @@ define([
         try {
             var selectedIds = parseIds(options.selectedIdsText || '');
             var selectedPOs = selectedIds.length ? loadPOsByIds(selectedIds) : [];
-            var poList = getTemplatePoList(selectedPOs, options.filters || {});
-            var context = buildEmailTemplateContext(poList, options.filters || {}, options.groupMemo || '', options.customMemoMap || {});
+            var clientContext = options.templateContext || {};
+            var poList = getTemplatePoList(selectedPOs, options.filters || {}, clientContext);
+            var context = buildEmailTemplateContext(poList, options.filters || {}, options.groupMemo || '', options.customMemoMap || {}, clientContext);
             templateId = resolveEmailTemplateInternalId();
             var mergeOptions = { templateId: Number(templateId) };
 
@@ -689,9 +693,14 @@ define([
         };
     }
 
-    function getTemplatePoList(selectedPOs, filters) {
+    function getTemplatePoList(selectedPOs, filters, clientContext) {
         selectedPOs = selectedPOs || [];
         filters = filters || {};
+        clientContext = clientContext || {};
+
+        if (clientContext.poList && clientContext.poList.length) {
+            selectedPOs = normalizeClientPoRows(clientContext.poList);
+        }
 
         if (!selectedPOs.length && filters.poId) {
             selectedPOs = loadPOsByIds([filters.poId]);
@@ -724,15 +733,39 @@ define([
         return selectedPOs;
     }
 
-    function buildEmailTemplateContext(poList, filters, groupMemo, customMemoMap) {
+    function normalizeClientPoRows(poList) {
+        var rows = [];
+        for (var i = 0; i < (poList || []).length; i++) {
+            var po = poList[i] || {};
+            rows.push({
+                poId: po.poId || '',
+                tranId: po.tranId || '',
+                vendorId: po.vendorId || '',
+                vendorName: po.vendorName || '',
+                vendorEmail: po.vendorEmail || '',
+                vendorSendPoEmail: !!po.vendorSendPoEmail,
+                tranDate: po.tranDate || '',
+                memo: po.memo || '',
+                vendorMemo: po.vendorMemo || '',
+                stockPo: !!po.stockPo,
+                groupNumber: po.groupNumber || '',
+                amount: po.amount || '',
+                emailSent: !!po.emailSent
+            });
+        }
+        return rows;
+    }
+
+    function buildEmailTemplateContext(poList, filters, groupMemo, customMemoMap, clientContext) {
         poList = poList || [];
         filters = filters || {};
         customMemoMap = customMemoMap || {};
+        clientContext = clientContext || {};
 
         var firstPo = poList.length ? poList[0] : null;
-        var vendorId = firstPo ? firstPo.vendorId : (filters.vendorId || '');
-        var vendorName = firstPo ? firstPo.vendorName : '';
-        var vendorEmail = firstPo ? firstPo.vendorEmail : '';
+        var vendorId = firstPo ? firstPo.vendorId : (clientContext.vendorId || filters.vendorId || '');
+        var vendorName = firstPo ? firstPo.vendorName : (clientContext.vendorName || '');
+        var vendorEmail = firstPo ? firstPo.vendorEmail : (clientContext.vendorEmail || '');
         var groupNumber = '';
         var poNumbers = [];
         var totalAmount = 0;
@@ -762,6 +795,16 @@ define([
 
         if (groupNumber && !groupMemo) {
             groupMemo = trackingInfo.groupMemo || '';
+        }
+
+        if (!groupMemo && clientContext.groupMemo) {
+            groupMemo = clientContext.groupMemo || '';
+        }
+
+        if (vendorId && (!vendorName || !vendorEmail)) {
+            var vendorInfo = getVendorInfo(vendorId, {});
+            vendorName = vendorName || vendorInfo.name || '';
+            vendorEmail = vendorEmail || vendorInfo.email || '';
         }
 
         return {
@@ -794,14 +837,21 @@ define([
             sender_name: allowHtml ? escapeHtml(context.senderName) : stripHtmlText(context.senderName)
         };
 
-        var output = String(value || '');
-        for (var key in tokenValues) {
+        return String(value || '').replace(/\{\{\s*([^}]+?)\s*\}\}/g, function (match, rawToken) {
+            var key = normalizeTemplateTokenName(rawToken);
             if (tokenValues.hasOwnProperty(key)) {
-                var pattern = new RegExp('\\{\\{\\s*' + key + '\\s*\\}\\}', 'g');
-                output = output.replace(pattern, tokenValues[key]);
+                return tokenValues[key];
             }
-        }
-        return output;
+            return match;
+        });
+    }
+
+    function normalizeTemplateTokenName(value) {
+        return String(value || '')
+            .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+            .replace(/[^a-zA-Z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .toLowerCase();
     }
 
     function buildEmailPoSummaryTable(poList) {
