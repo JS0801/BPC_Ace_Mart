@@ -10,6 +10,7 @@ define([
     'N/runtime',
     'N/file',
     'N/record',
+    'N/query',
     'N/url',
     'N/log'
 ], function (
@@ -20,6 +21,7 @@ define([
     runtime,
     file,
     record,
+    query,
     url,
     log
 ) {
@@ -27,6 +29,7 @@ define([
     var TEMP_FOLDER_ID = 8768;
     var PARAM_HTML_FILE_ID = 'custscript_po_email_html_file';
     var GROUP_PDF_TEMPLATE_ID = 'CUSTTMPL_CUSTOM_GROUPED_POS_PDFHTML_TEMPLATE';
+    var EMAIL_TEMPLATE_SCRIPT_ID = 'custemailtmpl_po_group_email';
 
     var FIELD_EMAIL_SENT = 'custbody_email_sent';
     var FIELD_GROUP_NUMBER = 'custbody_group_number';
@@ -86,6 +89,7 @@ define([
     var MAX_PO_OPTION_ROWS = 10000;
     var MAX_VENDOR_OPTION_ROWS = 10000;
     var MAX_MERGED_PDF_BYTES = 9 * 1024 * 1024;
+    var emailTemplateInternalId = null;
 
     function onRequest(context) {
         var request = context.request;
@@ -109,6 +113,24 @@ define([
 
             if (isAjax) {
                 var action = params[FLD_AJAX_ACTION] || params[FLD_ACTION] || 'filter';
+
+                if (action === 'merge_template') {
+                    var emailTemplate = getEmailTemplatePreview({
+                        selectedIdsText: params[FLD_SELECTED_IDS] || '',
+                        filters: filters,
+                        groupMemo: params[FLD_GROUP_MEMO] || '',
+                        customMemoMap: parseJsonObject(params[FLD_CUSTOM_MEMO_MAP])
+                    });
+
+                    writeJson(context, {
+                        success: !emailTemplate.error,
+                        emailTemplate: emailTemplate,
+                        emailSubject: emailTemplate.subject || '',
+                        emailBody: emailTemplate.body || '',
+                        message: emailTemplate.error || ''
+                    });
+                    return;
+                }
 
                 if (action === 'send' || action === 'resend') {
                     var resultMessage = processSelectedPOs({
@@ -175,7 +197,13 @@ define([
             poOptions: shouldLoadPoData ? getPurchaseOrderOptions(filters) : [],
             subsidiaryOptions: getSubsidiaryOptions(),
             locationOptions: getLocationOptions(filters.subsidiaryId),
-            vendorOptions: getVendorOptions()
+            vendorOptions: getVendorOptions(),
+            emailTemplate: getEmailTemplatePreview({
+                selectedIdsText: '',
+                filters: filters,
+                groupMemo: '',
+                customMemoMap: {}
+            })
         });
 
         context.response.writePage(form);
@@ -219,9 +247,10 @@ define([
             SUBSIDIARY_OPTIONS_JSON: dataObj.subsidiaryOptions || [],
             LOCATION_OPTIONS_JSON: dataObj.locationOptions || [],
             VENDOR_OPTIONS_JSON: dataObj.vendorOptions || [],
+            EMAIL_TEMPLATE_JSON: dataObj.emailTemplate || {},
             RESULT_MESSAGE_JSON: null,
-            EMAIL_BODY_MEMO_JSON: '',
-            EMAIL_SUBJECT_JSON: ''
+            EMAIL_BODY_MEMO_JSON: dataObj.emailTemplate && dataObj.emailTemplate.body ? dataObj.emailTemplate.body : '',
+            EMAIL_SUBJECT_JSON: dataObj.emailTemplate && dataObj.emailTemplate.subject ? dataObj.emailTemplate.subject : ''
         };
 
         for (var token in tokens) {
@@ -516,7 +545,7 @@ define([
             vendorMemo: result.getValue({ name: FIELD_VENDOR_MEMO }) || '',
             stockPo: stockPoValue === true || stockPoValue === 'T',
             groupNumber: result.getValue({ name: FIELD_GROUP_NUMBER }) || '',
-            amount: '',
+            amount: result.getValue({ name: 'amount' }) || '',
             emailSent: emailSentValue === true || emailSentValue === 'T'
         };
     }
@@ -541,6 +570,324 @@ define([
 
         vendorCache[vendorId] = info;
         return info;
+    }
+
+    function getEmailTemplatePreview(options) {
+        options = options || {};
+        var templateId = '';
+
+        try {
+            var selectedIds = parseIds(options.selectedIdsText || '');
+            var selectedPOs = selectedIds.length ? loadPOsByIds(selectedIds) : [];
+            var poList = getTemplatePoList(selectedPOs, options.filters || {});
+            var context = buildEmailTemplateContext(poList, options.filters || {}, options.groupMemo || '', options.customMemoMap || {});
+            templateId = resolveEmailTemplateInternalId();
+            var mergeOptions = { templateId: Number(templateId) };
+
+            if (context.vendorId) {
+                mergeOptions.entity = { type: record.Type.VENDOR, id: Number(context.vendorId) };
+                mergeOptions.recipient = { type: record.Type.VENDOR, id: Number(context.vendorId) };
+            }
+
+            if (context.transactionId) {
+                mergeOptions.transactionId = Number(context.transactionId);
+            }
+
+            var mergeResult;
+            try {
+                mergeResult = render.mergeEmail(mergeOptions);
+            } catch (mergeError) {
+                log.audit('Email Template Merge Fallback', mergeError);
+                mergeResult = loadRawEmailTemplate(templateId);
+            }
+
+            return {
+                subject: replaceEmailTemplateTokens(mergeResult.subject || '', context, false),
+                body: replaceEmailTemplateTokens(mergeResult.body || '', context, true),
+                templateScriptId: EMAIL_TEMPLATE_SCRIPT_ID,
+                templateId: templateId,
+                error: ''
+            };
+        } catch (e) {
+            log.error('Email Template Preview Error', e);
+            return {
+                subject: '',
+                body: '',
+                templateScriptId: EMAIL_TEMPLATE_SCRIPT_ID,
+                templateId: '',
+                error: e.name + ' : ' + e.message
+            };
+        }
+    }
+
+    function resolveEmailTemplateInternalId() {
+        if (emailTemplateInternalId) {
+            return emailTemplateInternalId;
+        }
+
+        if (/^\d+$/.test(String(EMAIL_TEMPLATE_SCRIPT_ID || ''))) {
+            emailTemplateInternalId = Number(EMAIL_TEMPLATE_SCRIPT_ID);
+            return emailTemplateInternalId;
+        }
+
+        try {
+            var templateSearch = search.create({
+                type: search.Type.EMAIL_TEMPLATE || 'emailtemplate',
+                filters: [['scriptid', 'is', EMAIL_TEMPLATE_SCRIPT_ID]],
+                columns: [search.createColumn({ name: 'internalid' })]
+            });
+
+            runSearch(templateSearch, 1, function (result) {
+                emailTemplateInternalId = result.id;
+            });
+        } catch (searchError) {
+            log.audit('Email Template Search Resolution Failed', searchError);
+        }
+
+        if (!emailTemplateInternalId && query && query.runSuiteQL) {
+            try {
+                var results = query.runSuiteQL({
+                    query: 'SELECT id FROM emailtemplate WHERE scriptid = ?',
+                    params: [EMAIL_TEMPLATE_SCRIPT_ID]
+                }).asMappedResults();
+
+                if (results && results.length && results[0].id) {
+                    emailTemplateInternalId = results[0].id;
+                }
+            } catch (queryError) {
+                log.audit('Email Template SuiteQL Resolution Failed', queryError);
+            }
+        }
+
+        if (!emailTemplateInternalId) {
+            throw new Error('Email template not found for script ID ' + EMAIL_TEMPLATE_SCRIPT_ID + '. render.mergeEmail requires the template internal ID, so confirm this script ID is deployed or change the constant to the numeric internal ID.');
+        }
+
+        return emailTemplateInternalId;
+    }
+
+    function loadRawEmailTemplate(templateId) {
+        var templateRecord = record.load({
+            type: record.Type.EMAIL_TEMPLATE || 'emailtemplate',
+            id: Number(templateId)
+        });
+
+        var body = templateRecord.getValue({ fieldId: 'content' }) || '';
+        var mediaItem = templateRecord.getValue({ fieldId: 'mediaitem' });
+
+        if (mediaItem) {
+            try {
+                body = file.load({ id: mediaItem }).getContents();
+            } catch (e) {
+                log.audit('Email Template Media Load Failed', e);
+            }
+        }
+
+        return {
+            subject: templateRecord.getValue({ fieldId: 'subject' }) || '',
+            body: body || ''
+        };
+    }
+
+    function getTemplatePoList(selectedPOs, filters) {
+        selectedPOs = selectedPOs || [];
+        filters = filters || {};
+
+        if (!selectedPOs.length && filters.poId) {
+            selectedPOs = loadPOsByIds([filters.poId]);
+        }
+
+        if (!selectedPOs.length) {
+            return [];
+        }
+
+        var groupNumber = '';
+        var hasUngrouped = false;
+        var differentGroup = false;
+
+        for (var i = 0; i < selectedPOs.length; i++) {
+            if (selectedPOs[i].groupNumber) {
+                if (!groupNumber) {
+                    groupNumber = selectedPOs[i].groupNumber;
+                } else if (String(groupNumber) !== String(selectedPOs[i].groupNumber)) {
+                    differentGroup = true;
+                }
+            } else {
+                hasUngrouped = true;
+            }
+        }
+
+        if (groupNumber && !hasUngrouped && !differentGroup) {
+            return loadPOsByGroupNumber(groupNumber);
+        }
+
+        return selectedPOs;
+    }
+
+    function buildEmailTemplateContext(poList, filters, groupMemo, customMemoMap) {
+        poList = poList || [];
+        filters = filters || {};
+        customMemoMap = customMemoMap || {};
+
+        var firstPo = poList.length ? poList[0] : null;
+        var vendorId = firstPo ? firstPo.vendorId : (filters.vendorId || '');
+        var vendorName = firstPo ? firstPo.vendorName : '';
+        var vendorEmail = firstPo ? firstPo.vendorEmail : '';
+        var groupNumber = '';
+        var poNumbers = [];
+        var totalAmount = 0;
+        var hasAmount = false;
+
+        for (var i = 0; i < poList.length; i++) {
+            var po = poList[i] || {};
+            if (po.tranId) poNumbers.push(po.tranId);
+            if (!groupNumber && po.groupNumber) groupNumber = po.groupNumber;
+
+            var amount = parseFloat(String(po.amount || '').replace(/[^0-9.\-]/g, ''));
+            if (!isNaN(amount)) {
+                totalAmount += amount;
+                hasAmount = true;
+            }
+
+            var key = String(po.poId || '');
+            if (key && customMemoMap.hasOwnProperty(key)) {
+                po.vendorMemo = customMemoMap[key] || '';
+            }
+        }
+
+        var trackingInfo = { revision: '', groupMemo: '' };
+        if (groupNumber) {
+            trackingInfo = getTrackingInfoByGroupNumber(groupNumber);
+        }
+
+        if (groupNumber && !groupMemo) {
+            groupMemo = trackingInfo.groupMemo || '';
+        }
+
+        return {
+            vendorId: vendorId,
+            vendorName: vendorName,
+            vendorEmail: vendorEmail,
+            transactionId: firstPo ? firstPo.poId : '',
+            poNumbers: poNumbers,
+            poCount: poList.length,
+            poTotalAmount: hasAmount ? formatMoney(totalAmount) : '',
+            groupNumber: groupNumber || '',
+            revisionNumber: trackingInfo.revision || '',
+            groupMemo: groupMemo || '',
+            poSummaryTable: buildEmailPoSummaryTable(poList),
+            senderName: getCurrentUserName()
+        };
+    }
+
+    function replaceEmailTemplateTokens(value, context, allowHtml) {
+        var tokenValues = {
+            vendor_name: allowHtml ? escapeHtml(context.vendorName) : stripHtmlText(context.vendorName),
+            vendor_email: allowHtml ? escapeHtml(context.vendorEmail) : stripHtmlText(context.vendorEmail),
+            po_numbers: allowHtml ? escapeHtml(context.poNumbers.join(', ')) : context.poNumbers.join(', '),
+            po_count: String(context.poCount || ''),
+            po_total_amount: context.poTotalAmount || '',
+            group_number: allowHtml ? escapeHtml(context.groupNumber) : stripHtmlText(context.groupNumber),
+            revision_number: context.revisionNumber || '',
+            group_memo: allowHtml ? textToHtml(context.groupMemo) : stripHtmlText(context.groupMemo),
+            po_summary_table: allowHtml ? context.poSummaryTable : stripHtmlText(context.poNumbers.join(', ')),
+            sender_name: allowHtml ? escapeHtml(context.senderName) : stripHtmlText(context.senderName)
+        };
+
+        var output = String(value || '');
+        for (var key in tokenValues) {
+            if (tokenValues.hasOwnProperty(key)) {
+                var pattern = new RegExp('\\{\\{\\s*' + key + '\\s*\\}\\}', 'g');
+                output = output.replace(pattern, tokenValues[key]);
+            }
+        }
+        return output;
+    }
+
+    function buildEmailPoSummaryTable(poList) {
+        poList = poList || [];
+        if (!poList.length) {
+            return '';
+        }
+
+        var html = '<table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:13px;">';
+        html += '<thead><tr>';
+        html += '<th style="text-align:left;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">PO Number</th>';
+        html += '<th style="text-align:left;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Date</th>';
+        html += '<th style="text-align:right;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Amount</th>';
+        html += '<th style="text-align:left;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Memo</th>';
+        html += '</tr></thead><tbody>';
+
+        for (var i = 0; i < poList.length; i++) {
+            var po = poList[i] || {};
+            html += '<tr>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;">' + escapeHtml(po.tranId || '') + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;">' + escapeHtml(po.tranDate || '') + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:right;">' + escapeHtml(formatMoney(po.amount)) + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;">' + textToHtml(po.vendorMemo || po.memo || '') + '</td>';
+            html += '</tr>';
+        }
+
+        html += '</tbody></table>';
+        return html;
+    }
+
+    function getTrackingInfoByGroupNumber(groupNumber) {
+        var info = { revision: '', groupMemo: '' };
+        if (!groupNumber) {
+            return info;
+        }
+
+        var trackingSearch = search.create({
+            type: CUSTOM_REC_TYPE,
+            filters: [[CREC_GROUP_NUMBER, 'is', groupNumber]],
+            columns: [
+                search.createColumn({ name: CREC_REVISION_NUMBER }),
+                search.createColumn({ name: CREC_MASTER_MEMO })
+            ]
+        });
+
+        runSearch(trackingSearch, 1, function (result) {
+            info.revision = result.getValue({ name: CREC_REVISION_NUMBER }) || '';
+            info.groupMemo = result.getValue({ name: CREC_MASTER_MEMO }) || '';
+        });
+
+        return info;
+    }
+
+    function formatMoney(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+
+        var amount = parseFloat(String(value).replace(/[^0-9.\-]/g, ''));
+        if (isNaN(amount)) {
+            return String(value || '');
+        }
+
+        return '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function getCurrentUserName() {
+        try {
+            return runtime.getCurrentUser().name || '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function stripHtmlText(value) {
+        return String(value || '')
+            .replace(/<br\s*\/?>/gi, ' ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;|&#160;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;/gi, "'")
+            .replace(/\s+/g, ' ')
+            .replace(/^\s+|\s+$/g, '');
     }
 
     function processSelectedPOs(options) {
@@ -746,6 +1093,7 @@ define([
                 search.createColumn({ name: 'entity' }),
                 search.createColumn({ name: 'trandate' }),
                 search.createColumn({ name: 'memo' }),
+                search.createColumn({ name: 'amount' }),
                 search.createColumn({ name: FIELD_EMAIL_SENT }),
                 search.createColumn({ name: FIELD_GROUP_NUMBER }),
                 search.createColumn({ name: FIELD_VENDOR_MEMO }),
