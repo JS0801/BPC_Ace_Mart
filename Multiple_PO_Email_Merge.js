@@ -872,19 +872,19 @@ define([
 
         var html = '<table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:13px;">';
         html += '<thead><tr>';
-        html += '<th style="align:left;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">PO Number</th>';
-        html += '<th style="align:left;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Date</th>';
-        html += '<th style="align:right;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Amount</th>';
-        html += '<th style="align:left;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Memo</th>';
+        html += '<th style="text-align:center;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">PO Number</th>';
+        html += '<th style="text-align:center;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Date</th>';
+        html += '<th style="text-align:right;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Amount</th>';
+        html += '<th style="text-align:center;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Memo</th>';
         html += '</tr></thead><tbody>';
 
         for (var i = 0; i < poList.length; i++) {
             var po = poList[i] || {};
             html += '<tr>';
-            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;">' + escapeHtml(po.tranId || '') + '</td>';
-            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;">' + escapeHtml(po.tranDate || '') + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">' + escapeHtml(po.tranId || '') + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">' + escapeHtml(po.tranDate || '') + '</td>';
             html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:right;">' + escapeHtml(formatMoney(po.amount)) + '</td>';
-            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;">' + textToHtml(po.vendorMemo || po.memo || '') + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">' + textToHtml(po.vendorMemo || po.memo || '') + '</td>';
             html += '</tr>';
         }
 
