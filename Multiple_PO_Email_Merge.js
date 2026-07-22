@@ -318,7 +318,7 @@ define([
         var options = [];
         var subsidiarySearch = search.create({
             type: search.Type.SUBSIDIARY,
-            filters: [['isinactive', 'is', 'F']],
+            filters: [['isinactive', 'is', 'F'], 'AND', ["iselimination","is","F"]],
             columns: [search.createColumn({ name: 'namenohierarchy', sort: search.Sort.ASC })]
         });
 
