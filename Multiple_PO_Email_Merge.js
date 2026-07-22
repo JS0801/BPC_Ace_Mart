@@ -43,7 +43,7 @@ define([
     var WAREHOUSE_LOCATION_TYPE_ID = '2';
 
     var CUSTOM_REC_TYPE = 'customrecord_grouped_pos';
-    var CREC_GROUP_NUMBER = 'custrecord_group_number';
+    var CREC_GROUP_NUMBER = 'name';
     var CREC_PO_NUMBER = 'custrecord_po_number';
     var CREC_MASTER_MEMO = 'custrecord_master_memo';
     var CREC_EMAIL_SUBJECT = 'custrecord_email_subject';
