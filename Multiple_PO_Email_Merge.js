@@ -28,6 +28,7 @@ define([
 
     var TEMP_FOLDER_ID = 8768;
     var PARAM_HTML_FILE_ID = 'custscript_po_email_html_file';
+    var PARAM_PO_LIST_SEARCH_ID = 'custscript_po_email_po_list_search';
     var GROUP_PDF_TEMPLATE_ID = 'CUSTTMPL_CUSTOM_GROUPED_POS_PDFHTML_TEMPLATE';
     var EMAIL_TEMPLATE_SCRIPT_ID = 'custemailtmpl_po_group_email';
 
@@ -159,6 +160,7 @@ define([
                     locationOptions: getLocationOptions(filters.subsidiaryId),
                     poData: hasRequiredLocationFilters(filters) ? getPurchaseOrders(filters) : [],
                     poOptions: hasRequiredLocationFilters(filters) ? getPurchaseOrderOptions(filters) : [],
+                    poColumns: getPoListColumns(),
                     refreshTable: true
                 });
                 return;
@@ -198,6 +200,7 @@ define([
             filters: filters,
             poData: shouldLoadPoData ? getPurchaseOrders(filters) : [],
             poOptions: shouldLoadPoData ? getPurchaseOrderOptions(filters) : [],
+            poColumns: getPoListColumns(),
             subsidiaryOptions: getSubsidiaryOptions(),
             locationOptions: getLocationOptions(filters.subsidiaryId),
             vendorOptions: getVendorOptions(),
@@ -248,6 +251,7 @@ define([
             FILTERS_JSON: dataObj.filters || {},
             PO_DATA_JSON: dataObj.poData || [],
             PO_OPTIONS_JSON: dataObj.poOptions || [],
+            PO_COLUMNS_JSON: dataObj.poColumns || getDefaultPoListColumns(),
             SUBSIDIARY_OPTIONS_JSON: dataObj.subsidiaryOptions || [],
             LOCATION_OPTIONS_JSON: dataObj.locationOptions || [],
             VENDOR_OPTIONS_JSON: dataObj.vendorOptions || [],
@@ -266,48 +270,334 @@ define([
         return html;
     }
 
+    function getDefaultPoListColumns() {
+        return [
+            { label: 'Select', key: '_select', type: 'string', sortable: false, style: 'width:50px;', renderType: 'select' },
+            { label: 'Email Status', key: 'emailStatus', type: 'string', style: 'width:120px;', renderType: 'status' },
+            { label: 'PO Number', key: 'tranId', type: 'string', style: 'width:130px;', renderType: 'po_link' },
+            { label: 'Vendor', key: 'vendorName', type: 'string', renderType: 'vendor_link' },
+            { label: 'Vendor Email', key: 'vendorEmail', type: 'string', renderType: 'text' },
+            { label: 'PO Date', key: 'tranDate', type: 'date', style: 'width:150px;', renderType: 'text' },
+            { label: 'Email Sent Date', key: 'emailSentDate', type: 'date', style: 'width:150px;', renderType: 'sent_date' },
+            { label: 'Send with Stock Purchase Order', key: 'stockPo', type: 'bool', style: 'width:150px;', renderType: 'bool' },
+            { label: 'Group Number', key: 'groupNumber', type: 'string', renderType: 'group_link' },
+            { label: 'Native Memo', key: 'memo', type: 'string', renderType: 'memo' },
+            { label: 'Custom Memo', key: 'vendorMemo', type: 'string', renderType: 'custom_memo' },
+            { label: 'Amount', key: 'amount', type: 'number', style: 'width:120px;text-align:right;', renderType: 'amount' }
+        ];
+    }
+
+    function getPoListColumns() {
+        return getPoListSearchConfig().columns || getDefaultPoListColumns();
+    }
+
+    function getPoListSearchConfig() {
+        var savedSearchId = runtime.getCurrentScript().getParameter({ name: PARAM_PO_LIST_SEARCH_ID }) || '';
+        if (!savedSearchId) {
+            return {
+                savedSearchId: '',
+                searchColumns: [],
+                resultColumns: [],
+                columns: getDefaultPoListColumns()
+            };
+        }
+
+        var poSearch = search.load({ id: savedSearchId });
+        var searchColumns = poSearch.columns || [];
+        if (!searchColumns.length) {
+            throw new Error('PO List Saved Search ' + savedSearchId + ' does not have result columns.');
+        }
+
+        var resultColumns = buildSavedSearchPoListColumns(searchColumns);
+        return {
+            savedSearchId: savedSearchId,
+            searchColumns: searchColumns,
+            resultColumns: resultColumns,
+            columns: [{ label: 'Select', key: '_select', type: 'string', sortable: false, style: 'width:50px;', renderType: 'select' }].concat(resultColumns)
+        };
+    }
+
+    function buildSavedSearchPoListColumns(searchColumns) {
+        var columns = [];
+        var usedKeys = {};
+
+        for (var i = 0; i < searchColumns.length; i++) {
+            var searchColumn = searchColumns[i];
+            var key = getSavedSearchPoColumnKey(searchColumn, i, usedKeys);
+            var renderType = getPoColumnRenderType(key);
+            var type = getPoColumnType(searchColumn, key);
+
+            columns.push({
+                label: getSavedSearchPoColumnLabel(searchColumn, key, i),
+                key: key,
+                type: type,
+                style: getPoColumnStyle(key, type),
+                renderType: renderType
+            });
+        }
+
+        return columns;
+    }
+
+    function getSavedSearchPoColumnKey(searchColumn, index, usedKeys) {
+        var knownKey = getKnownPoColumnKey(searchColumn);
+        var key = knownKey || ('sscol_' + index);
+
+        if (usedKeys[key]) {
+            key = 'sscol_' + index;
+        }
+
+        usedKeys[key] = true;
+        return key;
+    }
+
+    function getKnownPoColumnKey(searchColumn) {
+        if (!searchColumn || searchColumn.formula) {
+            return '';
+        }
+
+        var name = searchColumn.name || '';
+        var join = String(searchColumn.join || '').toLowerCase();
+
+        if (join === 'vendor' && name === FIELD_VENDOR_PO_EMAIL) return 'vendorEmail';
+        if (join === 'vendor' && name === FIELD_VENDOR_SEND_PO_EMAIL) return 'vendorSendPoEmail';
+        if (join) return '';
+
+        if (name === 'internalid') return 'poId';
+        if (name === 'tranid') return 'tranId';
+        if (name === 'entity') return 'vendorName';
+        if (name === 'trandate') return 'tranDate';
+        if (name === 'memo') return 'memo';
+        if (name === 'amount' || name === 'total') return 'amount';
+        if (name === FIELD_EMAIL_SENT) return 'emailSent';
+        if (name === FIELD_GROUP_NUMBER) return 'groupNumber';
+        if (name === FIELD_VENDOR_MEMO) return 'vendorMemo';
+        if (name === FIELD_STOCK_PO) return 'stockPo';
+        return '';
+    }
+
+    function getSavedSearchPoColumnLabel(searchColumn, key, index) {
+        if (searchColumn && searchColumn.label) {
+            return searchColumn.label;
+        }
+
+        var labels = {
+            poId: 'Internal ID',
+            tranId: 'PO Number',
+            vendorName: 'Vendor',
+            tranDate: 'PO Date',
+            memo: 'Native Memo',
+            amount: 'Amount',
+            emailSent: 'Email Sent',
+            groupNumber: 'Group Number',
+            vendorMemo: 'Custom Memo',
+            stockPo: 'Send with Stock Purchase Order',
+            vendorEmail: 'PO Email Address',
+            vendorSendPoEmail: 'Send Group PO Email'
+        };
+
+        return labels[key] || (searchColumn && searchColumn.name) || ('Column ' + (index + 1));
+    }
+
+    function getPoColumnType(searchColumn, key) {
+        if (key === 'amount') return 'number';
+        if (key === 'tranDate' || key === 'emailSentDate') return 'date';
+        if (key === 'stockPo' || key === 'emailSent' || key === 'vendorSendPoEmail') return 'bool';
+
+        var name = String((searchColumn && searchColumn.name) || '').toLowerCase();
+        if (name.indexOf('date') !== -1) return 'date';
+        if (name.indexOf('amount') !== -1 || name.indexOf('total') !== -1 || name.indexOf('quantity') !== -1 || name.indexOf('rate') !== -1) return 'number';
+
+        return 'string';
+    }
+
+    function getPoColumnRenderType(key) {
+        if (key === 'emailStatus') return 'status';
+        if (key === 'tranId') return 'po_link';
+        if (key === 'vendorName') return 'vendor_link';
+        if (key === 'groupNumber') return 'group_link';
+        if (key === 'vendorMemo') return 'custom_memo';
+        if (key === 'emailSentDate') return 'sent_date';
+        if (key === 'memo') return 'memo';
+        if (key === 'amount') return 'amount';
+        if (key === 'stockPo' || key === 'emailSent' || key === 'vendorSendPoEmail') return 'bool';
+        return 'text';
+    }
+
+    function getPoColumnStyle(key, type) {
+        if (key === 'tranId') return 'width:130px;';
+        if (key === 'tranDate' || key === 'emailSentDate') return 'width:150px;';
+        if (key === 'stockPo') return 'width:150px;';
+        if (key === 'vendorMemo') return 'min-width:220px;';
+        if (type === 'number') return 'width:120px;text-align:right;';
+        return '';
+    }
+
     function getPurchaseOrders(filters) {
         var data = [];
         var vendorCache = {};
         if (!hasRequiredLocationFilters(filters)) return data;
 
-        var poSearch = search.create({
-            type: 'purchaseorder',
-            settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
-            filters: buildPurchaseOrderFilters(filters, false),
-            columns: [
-                search.createColumn({ name: 'internalid' }),
-                search.createColumn({ name: 'tranid', sort: search.Sort.DESC }),
-                search.createColumn({ name: 'entity' }),
-                search.createColumn({ name: 'trandate' }),
-                search.createColumn({ name: 'memo' }),
-                search.createColumn({ name: 'amount' }),
-                search.createColumn({ name: FIELD_EMAIL_SENT }),
-                search.createColumn({ name: FIELD_GROUP_NUMBER }),
-                search.createColumn({ name: FIELD_VENDOR_MEMO }),
-                search.createColumn({ name: FIELD_STOCK_PO })
-            ]
-        });
+        var poListSearchConfig = getPoListSearchConfig();
+        if (poListSearchConfig.savedSearchId) {
+            data = getPurchaseOrdersFromSavedSearch(filters, poListSearchConfig);
+        } else {
+            var poSearch = search.create({
+                type: 'purchaseorder',
+                settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
+                filters: buildPurchaseOrderFilters(filters, false),
+                columns: getDefaultPurchaseOrderSearchColumns(search.Sort.DESC)
+            });
+
+            runSearch(poSearch, MAX_UI_PO_ROWS, function (result) {
+                data.push(buildPoRow(result, vendorCache));
+            });
+        }
+
+        decoratePoListRows(data);
+        return data;
+    }
+
+    function getDefaultPurchaseOrderSearchColumns(sortOrder) {
+        return [
+            search.createColumn({ name: 'internalid' }),
+            search.createColumn({ name: 'tranid', sort: sortOrder || search.Sort.ASC }),
+            search.createColumn({ name: 'entity' }),
+            search.createColumn({ name: 'trandate' }),
+            search.createColumn({ name: 'memo' }),
+            search.createColumn({ name: 'amount' }),
+            search.createColumn({ name: FIELD_EMAIL_SENT }),
+            search.createColumn({ name: FIELD_GROUP_NUMBER }),
+            search.createColumn({ name: FIELD_VENDOR_MEMO }),
+            search.createColumn({ name: FIELD_STOCK_PO })
+        ];
+    }
+
+    function getPurchaseOrdersFromSavedSearch(filters, poListSearchConfig) {
+        var ids = [];
+        var seen = {};
+        var displayValuesById = {};
+        var poSearch = search.load({ id: poListSearchConfig.savedSearchId });
+
+        poSearch.filterExpression = combineSearchExpressions(poSearch.filterExpression, buildPurchaseOrderFilters(filters, false));
 
         runSearch(poSearch, MAX_UI_PO_ROWS, function (result) {
-            var row = buildPoRow(result, vendorCache);
-            try {
-                row.poUrl = url.resolveRecord({ recordType: record.Type.PURCHASE_ORDER, recordId: row.poId, isEditMode: false });
-            } catch (e) {
-                row.poUrl = '';
-            }
-            try {
-                row.vendorUrl = row.vendorId ? url.resolveRecord({ recordType: record.Type.VENDOR, recordId: row.vendorId, isEditMode: false }) : '';
-            } catch (e2) {
-                row.vendorUrl = '';
-            }
-            row.tranDate = result.getValue({ name: 'trandate' }) || '';
-            row.amount = result.getValue({ name: 'amount' }) || '';
-            data.push(row);
+            var poId = result.id || result.getValue({ name: 'internalid' }) || '';
+            poId = String(poId || '');
+            if (!poId || seen[poId]) return;
+
+            seen[poId] = true;
+            ids.push(poId);
+            displayValuesById[poId] = buildSavedSearchDisplayValues(result, poListSearchConfig.searchColumns, poListSearchConfig.resultColumns);
         });
 
+        if (!ids.length) {
+            return [];
+        }
+
+        var coreRows = loadPOsByIds(ids);
+        var coreRowsById = {};
+        for (var i = 0; i < coreRows.length; i++) {
+            coreRowsById[String(coreRows[i].poId)] = coreRows[i];
+        }
+
+        var data = [];
+        for (var idIndex = 0; idIndex < ids.length; idIndex++) {
+            var id = ids[idIndex];
+            var row = coreRowsById[id] || {
+                poId: id,
+                poUrl: '',
+                tranId: '',
+                vendorId: '',
+                vendorName: '',
+                vendorUrl: '',
+                vendorEmail: '',
+                vendorSendPoEmail: false,
+                tranDate: '',
+                emailSentDate: '',
+                emailStatus: '',
+                trackingStatus: '',
+                groupMemo: '',
+                memo: '',
+                vendorMemo: '',
+                stockPo: false,
+                groupNumber: '',
+                groupRecordId: '',
+                groupRecordUrl: '',
+                amount: '',
+                emailSent: false
+            };
+
+            row.displayValues = displayValuesById[id] || {};
+            for (var key in row.displayValues) {
+                if (row.displayValues.hasOwnProperty(key) && (row[key] === undefined || row[key] === null || row[key] === '')) {
+                    row[key] = row.displayValues[key];
+                }
+            }
+            data.push(row);
+        }
+
+        return data;
+    }
+
+    function buildSavedSearchDisplayValues(result, searchColumns, resultColumns) {
+        var values = {};
+
+        for (var i = 0; i < searchColumns.length; i++) {
+            values[resultColumns[i].key] = getSearchResultDisplayValue(result, searchColumns[i]);
+        }
+
+        return values;
+    }
+
+    function getSearchResultDisplayValue(result, column) {
+        var text = '';
+        var value = '';
+
+        try {
+            text = result.getText(column) || '';
+        } catch (e) {
+            text = '';
+        }
+
+        try {
+            value = result.getValue(column);
+        } catch (e2) {
+            value = '';
+        }
+
+        if (Array.isArray(text)) text = text.join(', ');
+        if (Array.isArray(value)) value = value.join(', ');
+
+        return text || value || '';
+    }
+
+    function combineSearchExpressions(baseExpression, additionalExpression) {
+        baseExpression = baseExpression || [];
+        additionalExpression = additionalExpression || [];
+
+        if (!baseExpression.length) return additionalExpression;
+        if (!additionalExpression.length) return baseExpression;
+
+        return [baseExpression, 'AND', additionalExpression];
+    }
+
+    function decoratePoListRows(data) {
+        data = data || [];
         var groupTrackingMap = getGroupTrackingMap(data);
         for (var i = 0; i < data.length; i++) {
+            try {
+                data[i].poUrl = url.resolveRecord({ recordType: record.Type.PURCHASE_ORDER, recordId: data[i].poId, isEditMode: false });
+            } catch (e) {
+                data[i].poUrl = '';
+            }
+
+            try {
+                data[i].vendorUrl = data[i].vendorId ? url.resolveRecord({ recordType: record.Type.VENDOR, recordId: data[i].vendorId, isEditMode: false }) : '';
+            } catch (e2) {
+                data[i].vendorUrl = '';
+            }
+
             if (data[i].groupNumber && groupTrackingMap[data[i].groupNumber]) {
                 data[i].emailSentDate = groupTrackingMap[data[i].groupNumber].dateSent || '';
                 data[i].trackingStatus = groupTrackingMap[data[i].groupNumber].statusId || '';
@@ -326,8 +616,6 @@ define([
                 data[i].emailStatus = 'not_sent';
             }
         }
-
-        return data;
     }
 
     function getPurchaseOrderOptions(filters) {
