@@ -1189,19 +1189,32 @@ define([
         html += '<thead><tr>';
         html += '<th style="text-align:center;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">PO Number</th>';
         html += '<th style="text-align:center;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Date</th>';
-        html += '<th style="text-align:right;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Amount</th>';
         html += '<th style="text-align:center;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Memo</th>';
+        html += '<th style="text-align:right;padding:8px 10px;background:#f3f4f6;border:1px solid #d1d5db;">Amount</th>';
         html += '</tr></thead><tbody>';
 
+        var totalAmount = 0;
+        var hasAmount = false;
         for (var i = 0; i < poList.length; i++) {
             var po = poList[i] || {};
+            var amount = parseFloat(String(po.amount || '').replace(/[^0-9.\-]/g, ''));
+            if (!isNaN(amount)) {
+                totalAmount += amount;
+                hasAmount = true;
+            }
+
             html += '<tr>';
             html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">' + escapeHtml(po.tranId || '') + '</td>';
             html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">' + escapeHtml(po.tranDate || '') + '</td>';
-            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:right;">' + escapeHtml(formatMoney(po.amount)) + '</td>';
             html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:center;">' + textToHtml(po.vendorMemo || po.memo || '') + '</td>';
+            html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:right;">' + escapeHtml(formatMoney(po.amount)) + '</td>';
             html += '</tr>';
         }
+
+        html += '<tr>';
+        html += '<td colspan="3" style="padding:8px 10px;border:1px solid #d1d5db;text-align:right;font-weight:bold;background:#f9fafb;">Total</td>';
+        html += '<td style="padding:8px 10px;border:1px solid #d1d5db;text-align:right;font-weight:bold;background:#f9fafb;">' + escapeHtml(hasAmount ? formatMoney(totalAmount) : '') + '</td>';
+        html += '</tr>';
 
         html += '</tbody></table>';
         return html;
