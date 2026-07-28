@@ -287,6 +287,14 @@ define([
         ];
     }
 
+    function getSavedSearchSystemPoListColumns() {
+        return [
+            { label: 'Select', key: '_select', type: 'string', sortable: false, style: 'width:50px;', renderType: 'select' },
+            { label: 'Email Status', key: 'emailStatus', type: 'string', style: 'width:120px;', renderType: 'status' },
+            { label: 'Email Sent Date', key: 'emailSentDate', type: 'date', style: 'width:150px;', renderType: 'sent_date' }
+        ];
+    }
+
     function getPoListColumns() {
         return getPoListSearchConfig().columns || getDefaultPoListColumns();
     }
@@ -313,8 +321,20 @@ define([
             savedSearchId: savedSearchId,
             searchColumns: searchColumns,
             resultColumns: resultColumns,
-            columns: [{ label: 'Select', key: '_select', type: 'string', sortable: false, style: 'width:50px;', renderType: 'select' }].concat(resultColumns)
+            columns: getSavedSearchSystemPoListColumns().concat(getVisiblePoListColumns(resultColumns))
         };
+    }
+
+    function getVisiblePoListColumns(resultColumns) {
+        var visibleColumns = [];
+
+        for (var i = 0; i < (resultColumns || []).length; i++) {
+            if (!resultColumns[i].hidden) {
+                visibleColumns.push(resultColumns[i]);
+            }
+        }
+
+        return visibleColumns;
     }
 
     function buildSavedSearchPoListColumns(searchColumns) {
@@ -323,6 +343,7 @@ define([
 
         for (var i = 0; i < searchColumns.length; i++) {
             var searchColumn = searchColumns[i];
+            var hidden = isHiddenPoListSearchColumn(searchColumn);
             var key = getSavedSearchPoColumnKey(searchColumn, i, usedKeys);
             var renderType = getPoColumnRenderType(key);
             var type = getPoColumnType(searchColumn, key);
@@ -332,11 +353,17 @@ define([
                 key: key,
                 type: type,
                 style: getPoColumnStyle(key, type),
-                renderType: renderType
+                renderType: renderType,
+                hidden: hidden
             });
         }
 
         return columns;
+    }
+
+    function isHiddenPoListSearchColumn(searchColumn) {
+        var label = String((searchColumn && searchColumn.label) || '').replace(/^\s+|\s+$/g, '');
+        return label.charAt(0) === '~';
     }
 
     function getSavedSearchPoColumnKey(searchColumn, index, usedKeys) {
