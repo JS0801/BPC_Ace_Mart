@@ -110,7 +110,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       averageCostLines: 0,
       notFoundLines: 0,
       skippedNonZeroLines: 0,
-      lineErrorCount: 0
+      lineErrorCount: 0,
+      vendorPriceExamples: [],
+      averageCostExamples: [],
+      notFoundExamples: []
     };
     const exceptions = [];
 
@@ -174,6 +177,16 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
 
         if (line.source === SOURCE_NOT_FOUND) {
           stats.notFoundLines += 1;
+          if (stats.notFoundExamples.length < 5) {
+            stats.notFoundExamples.push({
+              tranId: line.tranId,
+              line: line.line,
+              item: line.itemText,
+              location: line.locationText,
+              quantity: line.quantity,
+              reason: line.reason
+            });
+          }
           exceptions.push({
             type: 'NOT_FOUND',
             recordId,
@@ -198,8 +211,32 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
           value: line.cost
         });
 
-        if (line.source === SOURCE_VENDOR_PRICE) stats.vendorPriceLines += 1;
-        if (line.source === SOURCE_AVERAGE_COST) stats.averageCostLines += 1;
+        if (line.source === SOURCE_VENDOR_PRICE) {
+          stats.vendorPriceLines += 1;
+          if (stats.vendorPriceExamples.length < 5) {
+            stats.vendorPriceExamples.push({
+              tranId: line.tranId,
+              line: line.line,
+              item: line.itemText,
+              location: line.locationText,
+              quantity: line.quantity,
+              cost: line.cost
+            });
+          }
+        }
+        if (line.source === SOURCE_AVERAGE_COST) {
+          stats.averageCostLines += 1;
+          if (stats.averageCostExamples.length < 5) {
+            stats.averageCostExamples.push({
+              tranId: line.tranId,
+              line: line.line,
+              item: line.itemText,
+              location: line.locationText,
+              quantity: line.quantity,
+              cost: line.cost
+            });
+          }
+        }
       });
 
       adjustment.setValue({ fieldId: FIELD_PROCESSED, value: true });
@@ -223,7 +260,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
         tranId: stats.tranId,
         vendorPriceLines: stats.vendorPriceLines,
         averageCostLines: stats.averageCostLines,
-        notFoundLines: stats.notFoundLines
+        notFoundLines: stats.notFoundLines,
+        vendorPriceExamples: stats.vendorPriceExamples,
+        averageCostExamples: stats.averageCostExamples,
+        notFoundExamples: stats.notFoundExamples
       });
     } catch (error) {
       context.write({
