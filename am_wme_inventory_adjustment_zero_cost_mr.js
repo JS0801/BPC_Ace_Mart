@@ -26,6 +26,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
   const SOURCE_VENDOR_PRICE = '1';
   const SOURCE_AVERAGE_COST = '2';
   const SOURCE_NOT_FOUND = '3';
+  const MAX_LOG_EXAMPLES = 10;
 
   const getInputData = () => {
     const script = runtime.getCurrentScript();
@@ -50,6 +51,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
     }
 
     const lineInstructions = [];
+    const inputExamples = [];
     const pagedData = zeroCostSearch.runPaged({ pageSize: 1000 });
 
     pagedData.pageRanges.forEach((pageRange) => {
@@ -77,6 +79,25 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
           source: resolvedCost.source,
           reason: resolvedCost.reason
         });
+
+        if (inputExamples.length < MAX_LOG_EXAMPLES) {
+          inputExamples.push({
+            recordId: String(result.getValue({ name: 'internalid' }) || ''),
+            tranId: String(result.getValue({ name: 'tranid' }) || ''),
+            line: String(result.getValue({ name: 'line' }) || ''),
+            lineUniqueKey: String(result.getValue({ name: 'lineuniquekey' }) || ''),
+            item: String(result.getText({ name: 'item' }) || itemId),
+            itemId,
+            subsidiary: String(result.getText({ name: 'subsidiarynohierarchy' }) || subsidiaryId),
+            subsidiaryId,
+            location: String(result.getText({ name: 'locationnohierarchy' }) || locationId),
+            locationId,
+            searchRate: String(result.getValue({ name: 'rate' }) || ''),
+            resolvedSource: resolvedCost.source,
+            resolvedCost: resolvedCost.cost,
+            reason: resolvedCost.reason
+          });
+        }
       });
     });
 
@@ -84,7 +105,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       searchId,
       lookbackDays,
       itemCount: Object.keys(itemCostMap).length,
-      lineCount: lineInstructions.length
+      lineCount: lineInstructions.length,
+      inputExamples
     });
 
     return lineInstructions;
@@ -92,6 +114,18 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
 
   const map = (context) => {
     const line = JSON.parse(context.value);
+    log.debug('Map grouping line', {
+      recordId: line.recordId,
+      tranId: line.tranId,
+      line: line.line,
+      lineUniqueKey: line.lineUniqueKey,
+      item: line.itemText,
+      subsidiaryId: line.subsidiaryId,
+      locationId: line.locationId,
+      source: line.source,
+      cost: line.cost,
+      reason: line.reason
+    });
     context.write({
       key: line.recordId,
       value: JSON.stringify(line)
@@ -113,11 +147,29 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       lineErrorCount: 0,
       vendorPriceExamples: [],
       averageCostExamples: [],
-      notFoundExamples: []
+      notFoundExamples: [],
+      skippedNonZeroExamples: [],
+      lineNotFoundExamples: []
     };
     const exceptions = [];
 
     try {
+      log.audit('Reduce started', {
+        recordId,
+        tranId: stats.tranId,
+        incomingLineCount: lines.length,
+        incomingLines: lines.slice(0, MAX_LOG_EXAMPLES).map((line) => ({
+          line: line.line,
+          lineUniqueKey: line.lineUniqueKey,
+          item: line.itemText,
+          subsidiaryId: line.subsidiaryId,
+          locationId: line.locationId,
+          source: line.source,
+          cost: line.cost,
+          reason: line.reason
+        }))
+      });
+
       const adjustment = record.load({
         type: record.Type.INVENTORY_ADJUSTMENT,
         id: recordId,
@@ -125,6 +177,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       });
       const lineIndexByKey = {};
       const lineCount = adjustment.getLineCount({ sublistId: SUBLIST_INVENTORY });
+      const inventoryLineExamples = [];
 
       for (let i = 0; i < lineCount; i += 1) {
         const key = adjustment.getSublistValue({
@@ -133,13 +186,55 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
           line: i
         });
         if (key) lineIndexByKey[String(key)] = i;
+
+        if (inventoryLineExamples.length < MAX_LOG_EXAMPLES) {
+          inventoryLineExamples.push({
+            recordLine: i,
+            lineUniqueKey: String(key || ''),
+            item: String(adjustment.getSublistValue({
+              sublistId: SUBLIST_INVENTORY,
+              fieldId: 'item',
+              line: i
+            }) || ''),
+            currentRate: adjustment.getSublistValue({
+              sublistId: SUBLIST_INVENTORY,
+              fieldId: FIELD_RATE,
+              line: i
+            })
+          });
+        }
       }
+
+      log.debug('Loaded Inventory Adjustment lines', {
+        recordId,
+        tranId: stats.tranId,
+        inventoryLineCount: lineCount,
+        inventoryLineExamples
+      });
 
       lines.forEach((line) => {
         const recordLine = lineIndexByKey[line.lineUniqueKey];
 
         if (recordLine === undefined) {
+          log.debug('Line update decision', {
+            recordId,
+            tranId: line.tranId,
+            line: line.line,
+            lineUniqueKey: line.lineUniqueKey,
+            item: line.itemText,
+            action: 'LINE_NOT_FOUND'
+          });
           stats.lineErrorCount += 1;
+          if (stats.lineNotFoundExamples.length < 5) {
+            stats.lineNotFoundExamples.push({
+              tranId: line.tranId,
+              line: line.line,
+              lineUniqueKey: line.lineUniqueKey,
+              item: line.itemText,
+              location: line.locationText,
+              quantity: line.quantity
+            });
+          }
           exceptions.push({
             type: 'LINE_NOT_FOUND',
             recordId,
@@ -164,7 +259,28 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
         }));
 
         if (currentRate > 0) {
+          log.debug('Line update decision', {
+            recordId,
+            tranId: line.tranId,
+            line: line.line,
+            lineUniqueKey: line.lineUniqueKey,
+            recordLine,
+            item: line.itemText,
+            currentRate,
+            action: 'SKIPPED_NON_ZERO'
+          });
           stats.skippedNonZeroLines += 1;
+          if (stats.skippedNonZeroExamples.length < 5) {
+            stats.skippedNonZeroExamples.push({
+              tranId: line.tranId,
+              line: line.line,
+              lineUniqueKey: line.lineUniqueKey,
+              item: line.itemText,
+              location: line.locationText,
+              quantity: line.quantity,
+              currentRate
+            });
+          }
           return;
         }
 
@@ -176,6 +292,18 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
         });
 
         if (line.source === SOURCE_NOT_FOUND) {
+          log.debug('Line update decision', {
+            recordId,
+            tranId: line.tranId,
+            line: line.line,
+            lineUniqueKey: line.lineUniqueKey,
+            recordLine,
+            item: line.itemText,
+            currentRate,
+            source: line.source,
+            action: 'SET_NOT_FOUND_SOURCE',
+            reason: line.reason
+          });
           stats.notFoundLines += 1;
           if (stats.notFoundExamples.length < 5) {
             stats.notFoundExamples.push({
@@ -209,6 +337,19 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
           fieldId: FIELD_RATE,
           line: recordLine,
           value: line.cost
+        });
+
+        log.debug('Line update decision', {
+          recordId,
+          tranId: line.tranId,
+          line: line.line,
+          lineUniqueKey: line.lineUniqueKey,
+          recordLine,
+          item: line.itemText,
+          currentRate,
+          newRate: line.cost,
+          source: line.source,
+          action: line.source === SOURCE_VENDOR_PRICE ? 'SET_VENDOR_PRICE' : 'SET_AVERAGE_COST'
         });
 
         if (line.source === SOURCE_VENDOR_PRICE) {
@@ -258,12 +399,17 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       log.audit('Inventory Adjustment processed', {
         recordId: savedId,
         tranId: stats.tranId,
+        attemptedLines: stats.attemptedLines,
         vendorPriceLines: stats.vendorPriceLines,
         averageCostLines: stats.averageCostLines,
         notFoundLines: stats.notFoundLines,
+        skippedNonZeroLines: stats.skippedNonZeroLines,
+        lineErrorCount: stats.lineErrorCount,
         vendorPriceExamples: stats.vendorPriceExamples,
         averageCostExamples: stats.averageCostExamples,
-        notFoundExamples: stats.notFoundExamples
+        notFoundExamples: stats.notFoundExamples,
+        skippedNonZeroExamples: stats.skippedNonZeroExamples,
+        lineNotFoundExamples: stats.lineNotFoundExamples
       });
     } catch (error) {
       context.write({
@@ -377,6 +523,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
 
   const buildItemCostMap = (itemCostQuery) => {
     const itemCostMap = {};
+    let rowCount = 0;
+    const mapExamples = [];
     const pagedData = query.runSuiteQLPaged({
       query: itemCostQuery,
       pageSize: 1000
@@ -385,6 +533,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
     pagedData.pageRanges.forEach((pageRange) => {
       const page = pagedData.fetch({ index: pageRange.index });
       page.data.asMappedResults().forEach((row) => {
+        rowCount += 1;
         const itemId = String(row.item_id || row.ITEM_ID || '');
         const subsidiaryId = String(row.subsidiary_id || row.SUBSIDIARY_ID || '');
         const locationId = String(row.location_id || row.LOCATION_ID || '');
@@ -404,7 +553,23 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
         if (locationId && averageCost > 0) {
           itemCostMap[itemId].averageCostByLocation[locationId] = averageCost;
         }
+
+        if (mapExamples.length < MAX_LOG_EXAMPLES) {
+          mapExamples.push({
+            itemId,
+            subsidiaryId,
+            vendorPrice,
+            locationId,
+            averageCost
+          });
+        }
       });
+    });
+
+    log.audit('Item cost map built', {
+      queryRowCount: rowCount,
+      itemCount: Object.keys(itemCostMap).length,
+      mapExamples
     });
 
     return itemCostMap;
