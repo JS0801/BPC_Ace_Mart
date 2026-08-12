@@ -175,7 +175,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
         id: recordId,
         isDynamic: false
       });
-      const lineIndexByKey = {};
       const lineCount = adjustment.getLineCount({ sublistId: SUBLIST_INVENTORY });
       const inventoryLineExamples = [];
 
@@ -185,7 +184,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
           fieldId: FIELD_LINE_UNIQUE_KEY,
           line: i
         });
-        if (key) lineIndexByKey[String(key)] = i;
 
         if (inventoryLineExamples.length < MAX_LOG_EXAMPLES) {
           inventoryLineExamples.push({
@@ -196,11 +194,16 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
               fieldId: 'item',
               line: i
             }) || ''),
-            currentRate: adjustment.getSublistValue({
+            location: String(adjustment.getSublistValue({
+              sublistId: SUBLIST_INVENTORY,
+              fieldId: 'location',
+              line: i
+            }) || ''),
+            currentRate: toNumber(adjustment.getSublistValue({
               sublistId: SUBLIST_INVENTORY,
               fieldId: FIELD_RATE,
               line: i
-            })
+            }))
           });
         }
       }
@@ -213,15 +216,22 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       });
 
       lines.forEach((line) => {
-        const recordLine = lineIndexByKey[line.lineUniqueKey];
+        const recordLine = adjustment.findSublistLineWithValue({
+          sublistId: SUBLIST_INVENTORY,
+          fieldId: FIELD_LINE_UNIQUE_KEY,
+          value: line.lineUniqueKey
+        });
+        const matchMethod = 'FIND_SUBLIST_LINE_WITH_VALUE';
 
-        if (recordLine === undefined) {
+        if (recordLine < 0) {
           log.debug('Line update decision', {
             recordId,
             tranId: line.tranId,
             line: line.line,
             lineUniqueKey: line.lineUniqueKey,
             item: line.itemText,
+            itemId: line.itemId,
+            locationId: line.locationId,
             action: 'LINE_NOT_FOUND'
           });
           stats.lineErrorCount += 1;
@@ -265,6 +275,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
             line: line.line,
             lineUniqueKey: line.lineUniqueKey,
             recordLine,
+            matchMethod,
             item: line.itemText,
             currentRate,
             action: 'SKIPPED_NON_ZERO'
@@ -298,6 +309,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
             line: line.line,
             lineUniqueKey: line.lineUniqueKey,
             recordLine,
+            matchMethod,
             item: line.itemText,
             currentRate,
             source: line.source,
@@ -345,6 +357,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
           line: line.line,
           lineUniqueKey: line.lineUniqueKey,
           recordLine,
+          matchMethod,
           item: line.itemText,
           currentRate,
           newRate: line.cost,
