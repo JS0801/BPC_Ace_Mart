@@ -218,8 +218,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/query', 'N/email', 'N/format'], 
       lines.forEach((line) => {
         const recordLine = adjustment.findSublistLineWithValue({
           sublistId: SUBLIST_INVENTORY,
-          fieldId: FIELD_LINE_UNIQUE_KEY,
-          value: line.lineUniqueKey
+          fieldId: 'line',
+          value: line.line
         });
         const matchMethod = 'FIND_SUBLIST_LINE_WITH_VALUE';
 
