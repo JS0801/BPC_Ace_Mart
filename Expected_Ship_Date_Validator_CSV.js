@@ -6,15 +6,15 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
     const beforeSubmit = (context) => {
         // Run validation ONLY for CSV Import
         if (runtime.executionContext !== runtime.ContextType.CSV_IMPORT) {
-            return;
+           // return;
         }
 
-      const VALID_ITEM_TYPES = {
-    Assembly: true,
-    InvtPart: true,
-    NonInvtPart: true,
-    Service: true
-};
+        const VALID_ITEM_TYPES = {
+            Assembly: true,
+            InvtPart: true,
+            NonInvtPart: true,
+            Service: true
+        };
 
         const rec = context.newRecord;
         const errors = [];
@@ -46,6 +46,7 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
                 fieldId: 'custcol_ace_need_by_date',
                 line: i
             });
+            log.debug('needByDate', needByDate)
           
             if (!VALID_ITEM_TYPES[itemType]) continue;
 
