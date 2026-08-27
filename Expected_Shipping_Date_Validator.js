@@ -3,14 +3,13 @@
  * @NScriptType ClientScript
  */
 define([], () => {
-
     const saveRecord = (context) => {
         const rec = context.currentRecord;
+        const errors = [];
 
         // Header validation
         if (!rec.getValue({ fieldId: 'shipdate' })) {
-            alert('Expected Ship Date is required at the Sales Order header level.');
-            return false;
+            errors.push('Header: Expected Ship Date is required.');
         }
 
         // Line validation
@@ -19,6 +18,11 @@ define([], () => {
         });
 
         for (let i = 0; i < lineCount; i++) {
+            const itemName = rec.getSublistText({
+                sublistId: 'item',
+                fieldId: 'item',
+                line: i
+            }) || 'Unknown Item';
 
             const needByDate = rec.getSublistValue({
                 sublistId: 'item',
@@ -32,15 +36,26 @@ define([], () => {
                 line: i
             });
 
+            const missingFields = [];
+
             if (!needByDate) {
-                alert(`Need By Date is required on line ${i + 1}.`);
-                return false;
+                missingFields.push('Need By Date');
             }
 
             if (!expectedShipDate) {
-                alert(`Expected Ship Date is required on line ${i + 1}.`);
-                return false;
+                missingFields.push('Expected Ship Date');
             }
+
+            if (missingFields.length > 0) {
+                errors.push(
+                    `Line ${i + 1} - ${itemName}: ${missingFields.join(', ')} is required.`
+                );
+            }
+        }
+
+        if (errors.length > 0) {
+            alert('Please enter the following required date fields:\n\n' + errors.join('\n'));
+            return false;
         }
 
         return true;
