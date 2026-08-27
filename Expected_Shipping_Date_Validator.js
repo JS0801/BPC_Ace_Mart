@@ -3,58 +3,51 @@
  * @NScriptType ClientScript
  */
 define([], () => {
-    const saveRecord = (context) => {
-        const rec = context.currentRecord;
-        const errors = [];
+    const VALID_ITEM_TYPES = {
+        Assembly: true,
+        InvtPart: true,
+        NonInvtPart: true,
+        Service: true
+    };
 
-        // Header validation
-        if (!rec.getValue({ fieldId: 'shipdate' })) {
-            errors.push('Header: Expected Ship Date is required.');
+    const validateLine = (context) => {
+        if (context.sublistId !== 'item') {
+            return true;
         }
 
-        // Line validation
-        const lineCount = rec.getLineCount({
-            sublistId: 'item'
+        const rec = context.currentRecord;
+
+        const itemType = rec.getCurrentSublistValue({
+            sublistId: 'item',
+            fieldId: 'itemtype'
         });
 
-        for (let i = 0; i < lineCount; i++) {
-            const itemName = rec.getSublistText({
-                sublistId: 'item',
-                fieldId: 'item',
-                line: i
-            }) || 'Unknown Item';
-
-            const needByDate = rec.getSublistValue({
-                sublistId: 'item',
-                fieldId: 'custcol_ace_need_by_date',
-                line: i
-            });
-
-            const expectedShipDate = rec.getSublistValue({
-                sublistId: 'item',
-                fieldId: 'expectedshipdate',
-                line: i
-            });
-
-            const missingFields = [];
-
-            if (!needByDate) {
-                missingFields.push('Need By Date');
-            }
-
-            if (!expectedShipDate) {
-                missingFields.push('Expected Ship Date');
-            }
-
-            if (missingFields.length > 0) {
-                errors.push(
-                    `Line ${i + 1} - ${itemName}: ${missingFields.join(', ')} is required.`
-                );
-            }
+        if (!VALID_ITEM_TYPES[itemType]) {
+            return true;
         }
 
-        if (errors.length > 0) {
-            alert('Please enter the following required date fields:\n\n' + errors.join('\n'));
+        const missingFields = [];
+
+        const needByDate = rec.getCurrentSublistValue({
+            sublistId: 'item',
+            fieldId: 'custcol_ace_need_by_date'
+        });
+
+        const expectedShipDate = rec.getCurrentSublistValue({
+            sublistId: 'item',
+            fieldId: 'expectedshipdate'
+        });
+
+        if (!needByDate) {
+            missingFields.push('Need By Date');
+        }
+
+        if (!expectedShipDate) {
+            missingFields.push('Expected Ship Date');
+        }
+
+        if (missingFields.length > 0) {
+            alert(`Please enter date in the following field(s): ${missingFields.join(', ')}.`);
             return false;
         }
 
@@ -62,6 +55,6 @@ define([], () => {
     };
 
     return {
-        saveRecord
+        validateLine
     };
 });
