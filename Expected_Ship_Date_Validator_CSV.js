@@ -3,22 +3,18 @@
  * @NScriptType UserEventScript
  */
 define(['N/runtime', 'N/error'], (runtime, error) => {
-
     const beforeSubmit = (context) => {
-
         // Run validation ONLY for CSV Import
         if (runtime.executionContext !== runtime.ContextType.CSV_IMPORT) {
             return;
         }
 
         const rec = context.newRecord;
+        const errors = [];
 
-        // Header Expected Ship Date
+        // Header validation
         if (!rec.getValue({ fieldId: 'shipdate' })) {
-            throw error.create({
-                name: 'MISSING_EXPECTED_SHIP_DATE',
-                message: 'Expected Ship Date is required at the Sales Order header level.'
-            });
+            errors.push('Header: Expected Ship Date is required.');
         }
 
         const lineCount = rec.getLineCount({
@@ -26,6 +22,11 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
         });
 
         for (let i = 0; i < lineCount; i++) {
+            const itemName = rec.getSublistText({
+                sublistId: 'item',
+                fieldId: 'item',
+                line: i
+            }) || 'Unknown Item';
 
             const needByDate = rec.getSublistValue({
                 sublistId: 'item',
@@ -39,21 +40,32 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
                 line: i
             });
 
+            const missingFields = [];
+
             if (!needByDate) {
-                throw error.create({
-                    name: 'MISSING_NEED_BY_DATE',
-                    message: `Need By Date is required on line ${i + 1}.`
-                });
+                missingFields.push('Need By Date');
             }
 
             if (!expectedShipDate) {
-                throw error.create({
-                    name: 'MISSING_EXPECTED_SHIP_DATE',
-                    message: `Expected Ship Date is required on line ${i + 1}.`
-                });
+                missingFields.push('Expected Ship Date');
             }
+
+            if (missingFields.length > 0) {
+                errors.push(
+                    `Line ${i + 1} - ${itemName}: ${missingFields.join(', ')} is required.`
+                );
+            }
+        }
+
+        if (errors.length > 0) {
+            throw error.create({
+                name: 'MISSING_REQUIRED_DATE_FIELDS',
+                message: 'Please enter the following required date fields:\n\n' + errors.join('\n')
+            });
         }
     };
 
-    return { beforeSubmit };
+    return {
+        beforeSubmit
+    };
 });
