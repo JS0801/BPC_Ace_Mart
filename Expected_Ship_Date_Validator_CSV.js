@@ -9,6 +9,13 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
             return;
         }
 
+      const VALID_ITEM_TYPES = {
+    Assembly: true,
+    InvtPart: true,
+    NonInvtPart: true,
+    Service: true
+};
+
         const rec = context.newRecord;
         const errors = [];
 
@@ -26,13 +33,21 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
                 sublistId: 'item',
                 fieldId: 'item',
                 line: i
-            }) || 'Unknown Item';
+            });
+
+            const itemType = rec.getSublistValue({
+                sublistId: 'item',
+                fieldId: 'itemtype',
+                line: i
+            });
 
             const needByDate = rec.getSublistValue({
                 sublistId: 'item',
                 fieldId: 'custcol_ace_need_by_date',
                 line: i
             });
+          
+            if (!VALID_ITEM_TYPES[itemType]) continue;
 
             const expectedShipDate = rec.getSublistValue({
                 sublistId: 'item',
