@@ -11,9 +11,7 @@ define(['N/search', 'N/runtime', 'N/render', 'N/email', 'N/record'], function (
 ) {
     const PARAM = {
         SEARCH_ID: 'custscript_am_invoice_email_search',
-        DEFAULT_AUTHOR: 'custscript_am_default_email_author',
-        MAX_ATTACHMENTS: 'custscript_am_max_attachments',
-        MAX_EMAIL_MB: 'custscript_am_max_email_mb'
+        DEFAULT_AUTHOR: 'custscript_am_default_email_author'
     };
 
     const FIELD = {
@@ -24,8 +22,8 @@ define(['N/search', 'N/runtime', 'N/render', 'N/email', 'N/record'], function (
         CUSTOMER_AR_REP: 'custentity_bpc_assigned_ar_rep'
     };
 
-    const DEFAULT_MAX_ATTACHMENTS = 10;
-    const DEFAULT_MAX_EMAIL_MB = 9.5;
+    const MAX_ATTACHMENTS = 10;
+    const MAX_EMAIL_BYTES = 9.5 * 1024 * 1024;
 
     function getInputData() {
         const script = runtime.getCurrentScript();
@@ -114,11 +112,6 @@ define(['N/search', 'N/runtime', 'N/render', 'N/email', 'N/record'], function (
         const group = JSON.parse(context.value);
         const defaultAuthor = script.getParameter({ name: PARAM.DEFAULT_AUTHOR });
         const author = group.assignedArRep || defaultAuthor;
-        const maxAttachments = Math.min(
-            Math.max(Number(script.getParameter({ name: PARAM.MAX_ATTACHMENTS })) || DEFAULT_MAX_ATTACHMENTS, 1),
-            DEFAULT_MAX_ATTACHMENTS
-        );
-        const maxEmailBytes = (Number(script.getParameter({ name: PARAM.MAX_EMAIL_MB })) || DEFAULT_MAX_EMAIL_MB) * 1024 * 1024;
         const stats = {
             customerId: group.customerId,
             customerName: group.customerName,
@@ -173,7 +166,7 @@ define(['N/search', 'N/runtime', 'N/render', 'N/email', 'N/record'], function (
                 pdfFile.name = safeFileName(invoice.tranId) + '.pdf';
 
                 const pdfBytes = getFileBytes(pdfFile);
-                if (pdfBytes > maxEmailBytes) {
+                if (pdfBytes > MAX_EMAIL_BYTES) {
                     throw new Error('Rendered PDF exceeds the configured email size limit.');
                 }
 
@@ -202,8 +195,8 @@ define(['N/search', 'N/runtime', 'N/render', 'N/email', 'N/record'], function (
         let batchBytes = 0;
 
         renderedInvoices.forEach(function (item) {
-            const wouldExceedCount = batch.length >= maxAttachments;
-            const wouldExceedSize = batch.length > 0 && batchBytes + item.bytes > maxEmailBytes;
+            const wouldExceedCount = batch.length >= MAX_ATTACHMENTS;
+            const wouldExceedSize = batch.length > 0 && batchBytes + item.bytes > MAX_EMAIL_BYTES;
 
             if (wouldExceedCount || wouldExceedSize) {
                 batches.push(batch);
