@@ -117,9 +117,9 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
         }
 
         var recType = context.newRecord.type; // 'salesorder' or 'invoice'
-        if (recType !== record.Type.SALES_ORDER && recType !== record.Type.INVOICE) {
-            return;
-        }
+        // if (recType !== record.Type.SALES_ORDER && recType !== record.Type.INVOICE) {
+        //     return;
+        // }
 
         var recId = context.newRecord.id;
 
@@ -144,8 +144,31 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
             // onto the invoice line even when billed from a special-order
             // SO - so for invoices we only gather custcol_so_line_ref here
             // and resolve Tier 1 in Pass 1c after a batched SO lookup.
-            var txnType = (recType === record.Type.INVOICE) ? 'invoice' : 'salesorder';
-            var isInvoice = (recType === record.Type.INVOICE);
+
+            var transactionSearchTypes = {};
+
+transactionSearchTypes[record.Type.SALES_ORDER] = search.Type.SALES_ORDER;
+transactionSearchTypes[record.Type.INVOICE] = search.Type.INVOICE;
+transactionSearchTypes[record.Type.CASH_SALE] = search.Type.CASH_SALE;
+transactionSearchTypes[record.Type.CREDIT_MEMO] = search.Type.CREDIT_MEMO;
+transactionSearchTypes[record.Type.CASH_REFUND] = search.Type.CASH_REFUND;
+
+var txnType = transactionSearchTypes[recType];
+
+var isSalesOrder = (recType === record.Type.SALES_ORDER);
+
+var usesSoLineRef = (
+    recType === record.Type.INVOICE ||
+    recType === record.Type.CASH_SALE ||
+    recType === record.Type.CREDIT_MEMO ||
+    recType === record.Type.CASH_REFUND
+);
+
+var isReturnTransaction = (
+    recType === record.Type.CREDIT_MEMO ||
+    recType === record.Type.CASH_REFUND
+);
+
 
             var lineSearchColumns = [
                 search.createColumn({ name: 'line' }),
@@ -154,7 +177,7 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
                 search.createColumn({ name: 'amount' }),
                 search.createColumn({ name: 'location' })
             ];
-            if (isInvoice) {
+            if (usesSoLineRef) {
                 lineSearchColumns.push(search.createColumn({ name: SO_LINE_REF_FIELD }));
             } else {
                 lineSearchColumns.push(search.createColumn({ name: 'purchaseorder' }));
@@ -194,7 +217,7 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
                     tier: null // for logging: which tier ultimately resolved this line
                 };
 
-                if (isInvoice) {
+                if (usesSoLineRef) {
                     var soLineRef = result.getValue({ name: SO_LINE_REF_FIELD });
                     row.soLineRef = soLineRef;
                     if (soLineRef !== '' && soLineRef !== null) {
@@ -231,15 +254,15 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
                 return true;
             });
 
-            log.debug('AM GP - Pass1a summary', 'totalLines=' + lines.length + ' isInvoice=' + isInvoice +
-                (isInvoice ? (' soLookupKeys=' + Object.keys(soLookupKeys).length) : ''));
+            log.debug('AM GP - Pass1a summary', 'totalLines=' + lines.length + ' usesSoLineRef=' + usesSoLineRef +
+                (usesSoLineRef ? (' soLookupKeys=' + Object.keys(soLookupKeys).length) : ''));
 
             // ---- PASS 1b (Invoice only): ONE batched search back on the
             // Sales Order, filtered directly on lineuniquekey - covers Tier 1
             // for every distinct SO line referenced by this invoice, with no
             // need to also know which SO each line belongs to. ----
             var soTier1Map = {}; // key: SO line's lineuniquekey -> PO rate
-            if (isInvoice) {
+            if (usesSoLineRef) {
                 var soLookupKeyList = Object.keys(soLookupKeys);
                 if (soLookupKeyList.length > 0) {
                     log.debug('AM GP - Pass1b search filters', JSON.stringify({
@@ -291,7 +314,7 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
             var tier2LocationIds = {};   // unique locations involved in those lookups
 
             lines.forEach(function (row) {
-                if (isInvoice && row.lineUnitCost === null && row.soLineRef && soTier1Map.hasOwnProperty(row.soLineRef)) {
+                if (usesSoLineRef && row.lineUnitCost === null && row.soLineRef && soTier1Map.hasOwnProperty(row.soLineRef)) {
                     row.lineUnitCost = soTier1Map[row.soLineRef];
                     row.tier = 1;
                 }
@@ -422,9 +445,18 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
                     'Line ' + row.lineUniqueKey + ' (item ' + row.itemId + ') passed Tier ' + row.tier +
                     ' - unitCost=' + row.lineUnitCost);
 
-                var extendedLineCost = row.lineUnitCost * row.quantity;
-                var grossProfit = row.amount - extendedLineCost;
-                var grossProfitPct = (row.amount !== 0) ? (grossProfit / row.amount) * 100 : 0; // OPEN ITEM - SDD 4
+var revenue = row.amount;
+var extendedLineCost = row.lineUnitCost * Math.abs(row.quantity);
+
+if (isReturnTransaction) {
+    revenue = -Math.abs(revenue);
+    extendedLineCost = -Math.abs(extendedLineCost);
+}
+
+var grossProfit = revenue - extendedLineCost;
+var grossProfitPct = (revenue !== 0)
+    ? (grossProfit / revenue) * 100
+    : 0;
 
                 var lineIdx = rec.findSublistLineWithValue({
                     sublistId: 'item',
@@ -451,7 +483,7 @@ define(['N/search', 'N/record', 'N/log'], function (search, record, log) {
                     unitCost: row.lineUnitCost,
                     qty: row.quantity,
                     extendedLineCost: round2(extendedLineCost),
-                    revenue: row.amount,
+                    revenue: revenue,
                     grossProfit: round2(grossProfit),
                     grossProfitPct: round2(grossProfitPct),
                     existingLineCost: existingLineCost,
