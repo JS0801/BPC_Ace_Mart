@@ -2,7 +2,7 @@
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
  */
-define(['N/runtime', 'N/error'], (runtime, error) => {
+define(['N/runtime', 'N/error', 'N/record'], (runtime, error, record) => {
     const beforeSubmit = (context) => {
         // Run validation ONLY for CSV Import
         if (runtime.executionContext !== runtime.ContextType.CSV_IMPORT) {
