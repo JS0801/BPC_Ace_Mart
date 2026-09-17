@@ -6,7 +6,7 @@ define(['N/runtime', 'N/error'], (runtime, error) => {
     const beforeSubmit = (context) => {
         // Run validation ONLY for CSV Import
         if (runtime.executionContext !== runtime.ContextType.CSV_IMPORT) {
-           // return;
+            return;
         }
 
         const VALID_ITEM_TYPES = {
