@@ -83,35 +83,90 @@ define(['N/runtime', 'N/error', 'N/record'], (runtime, error, record) => {
 
 
 const NEED_BY_FIELD = 'custcol_ace_need_by_date';
-const EXPECTED_SHIP_DATE_FIELD = 'expectedshipdate'; // Item-line field
+const EXPECTED_SHIP_DATE_FIELD = 'expectedshipdate'; // Item-level field
 
 const afterSubmit = (context) => {
+    log.audit({
+        title: 'Expected Ship Date UE Started',
+        details: {
+            eventType: context.type,
+            salesOrderId: context.newRecord.id
+        }
+    });
+
     if (context.type !== context.UserEventType.EDIT) {
+        log.debug({
+            title: 'Skipping non-EDIT event',
+            details: `Event type: ${context.type}`
+        });
         return;
     }
 
     try {
+        const soId = context.newRecord.id;
+
         const soRec = record.load({
             type: record.Type.SALES_ORDER,
-            id: context.newRecord.id,
+            id: soId,
             isDynamic: false
         });
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const lineCount = soRec.getLineCount({ sublistId: 'item' });
+        const lineCount = soRec.getLineCount({
+            sublistId: 'item'
+        });
+
         let hasChanges = false;
 
+        log.debug({
+            title: 'Sales Order loaded',
+            details: {
+                salesOrderId: soId,
+                lineCount,
+                today
+            }
+        });
+
         for (let line = 0; line < lineCount; line++) {
+            const itemId = soRec.getSublistValue({
+                sublistId: 'item',
+                fieldId: 'item',
+                line
+            });
+
             const rawNeedByDate = soRec.getSublistValue({
                 sublistId: 'item',
                 fieldId: NEED_BY_FIELD,
                 line
             });
 
-            // Leave the Expected Ship Date unchanged when Need By is blank.
+            const existingShipDate = soRec.getSublistValue({
+                sublistId: 'item',
+                fieldId: EXPECTED_SHIP_DATE_FIELD,
+                line
+            });
+
+            log.debug({
+                title: `Processing line ${line + 1}`,
+                details: {
+                    salesOrderId: soId,
+                    line: line + 1,
+                    itemId,
+                    rawNeedByDate,
+                    existingShipDate
+                }
+            });
+
             if (!rawNeedByDate) {
+                log.debug({
+                    title: `Skipping line ${line + 1}: no Need By Date`,
+                    details: {
+                        salesOrderId: soId,
+                        itemId
+                    }
+                });
                 continue;
             }
 
@@ -125,33 +180,56 @@ const afterSubmit = (context) => {
 
                 needByDate.setHours(0, 0, 0, 0);
 
-                // Expected Ship Date = Need By Date minus 3 days,
-                // never earlier than today.
-                const expectedShipDate = new Date(needByDate);
-                expectedShipDate.setDate(expectedShipDate.getDate() - 3);
+                // Expected Ship Date = Need By Date minus 3 days.
+                let calculatedShipDate = new Date(needByDate);
+                calculatedShipDate.setDate(calculatedShipDate.getDate() - 3);
+                calculatedShipDate.setHours(0, 0, 0, 0);
 
-                if (expectedShipDate < today) {
-                    expectedShipDate.setTime(today.getTime());
+                const calculatedDateBeforeFloor = new Date(calculatedShipDate);
+
+                // Never use a date before today.
+                if (calculatedShipDate < today) {
+                    calculatedShipDate = new Date(today);
+
+                    log.debug({
+                        title: `Line ${line + 1}: calculated date was in the past`,
+                        details: {
+                            salesOrderId: soId,
+                            itemId,
+                            needByDate,
+                            calculatedDateBeforeFloor,
+                            replacementShipDate: calculatedShipDate
+                        }
+                    });
                 }
 
-                const existingShipDate = soRec.getSublistValue({
-                    sublistId: 'item',
-                    fieldId: EXPECTED_SHIP_DATE_FIELD,
-                    line
-                });
+                let existingDate = null;
 
-                const existingDate = existingShipDate
-                    ? new Date(existingShipDate)
-                    : null;
+                if (existingShipDate) {
+                    existingDate = existingShipDate instanceof Date
+                        ? new Date(existingShipDate)
+                        : format.parse({
+                            value: existingShipDate,
+                            type: format.Type.DATE
+                        });
 
-                if (existingDate) {
                     existingDate.setHours(0, 0, 0, 0);
                 }
 
                 if (
                     existingDate &&
-                    existingDate.getTime() === expectedShipDate.getTime()
+                    existingDate.getTime() === calculatedShipDate.getTime()
                 ) {
+                    log.debug({
+                        title: `Line ${line + 1}: Expected Ship Date already correct`,
+                        details: {
+                            salesOrderId: soId,
+                            itemId,
+                            needByDate,
+                            existingShipDate: existingDate,
+                            calculatedShipDate
+                        }
+                    });
                     continue;
                 }
 
@@ -159,41 +237,67 @@ const afterSubmit = (context) => {
                     sublistId: 'item',
                     fieldId: EXPECTED_SHIP_DATE_FIELD,
                     line,
-                    value: expectedShipDate
+                    value: calculatedShipDate
                 });
 
                 hasChanges = true;
-            } catch (parseError) {
-                log.error({
-                    title: `Unable to set Expected Ship Date on line ${line + 1}`,
+
+                log.audit({
+                    title: `Line ${line + 1}: Expected Ship Date set`,
                     details: {
-                        salesOrderId: context.newRecord.id,
+                        salesOrderId: soId,
+                        itemId,
+                        needByDate,
+                        previousShipDate: existingDate,
+                        newShipDate: calculatedShipDate
+                    }
+                });
+            } catch (lineError) {
+                log.error({
+                    title: `Line ${line + 1}: Unable to calculate Expected Ship Date`,
+                    details: {
+                        salesOrderId: soId,
+                        itemId,
                         rawNeedByDate,
-                        parseError
+                        errorName: lineError.name,
+                        errorMessage: lineError.message,
+                        stack: lineError.stack
                     }
                 });
             }
         }
 
         if (!hasChanges) {
+            log.audit({
+                title: 'Expected Ship Date UE Complete: no changes required',
+                details: {
+                    salesOrderId: soId
+                }
+            });
             return;
         }
 
-        soRec.save({
+        const savedSoId = soRec.save({
             enableSourcing: false,
             ignoreMandatoryFields: true
         });
 
         log.audit({
-            title: 'Sales Order line Expected Ship Dates updated',
+            title: 'Expected Ship Date UE Complete: Sales Order saved',
             details: {
-                salesOrderId: context.newRecord.id
+                salesOrderId: savedSoId,
+                updatedLines: true
             }
         });
     } catch (error) {
         log.error({
-            title: 'Error setting Sales Order line Expected Ship Dates',
-            details: error
+            title: 'Expected Ship Date UE Failed',
+            details: {
+                salesOrderId: context.newRecord.id,
+                errorName: error.name,
+                errorMessage: error.message,
+                stack: error.stack
+            }
         });
     }
 };
