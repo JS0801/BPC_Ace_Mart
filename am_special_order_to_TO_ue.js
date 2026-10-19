@@ -1,157 +1,138 @@
 /**
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
+ * Sandbox: create one Transfer Order per new Item Receipt/source/destination.
+ * Uses receipt quantities, skips EDIT, and logs ambiguous item-to-SO matches.
+ * custcol_bpc_created_to is populated only when blank, preserving the first TO link.
  */
 define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, runtime) => {
+    const id = value => value == null ? '' : String(value);
+    const checked = value => value === true || value === 'T';
+    const lineValue = (rec, fieldId, line) => rec.getSublistValue({ sublistId: 'item', fieldId, line });
 
     function afterSubmit(context) {
+        if (context.type !== context.UserEventType.CREATE) return;
+        const receiptId = context.newRecord.id;
         try {
-            // if (context.type !== context.UserEventType.CREATE) return;
-            if (![context.UserEventType.CREATE, context.UserEventType.EDIT].includes(context.type)) return;
-
             const transferReason = runtime.getCurrentScript().getParameter({ name: 'custscript_transfer_reason_sp' }) || 5;
-
-            const itemReceipt = record.load({
-                type: record.Type.ITEM_RECEIPT,
-                id: context.newRecord.id,
-                isDynamic: true
-            });
-
-            const receiptLocation = itemReceipt.getValue('location');
-            const poId = itemReceipt.getValue('createdfrom');
+            const receipt = record.load({ type: record.Type.ITEM_RECEIPT, id: receiptId });
+            const poId = receipt.getValue('createdfrom');
             if (!poId) return;
-
-            // Verify if createdfrom is a PO
             const poLookup = search.lookupFields({
-                type: search.Type.TRANSACTION,
-                id: poId,
-                columns: ['recordtype', 'createdfrom']
+                type: search.Type.TRANSACTION, id: poId, columns: ['recordtype', 'createdfrom']
             });
-
-            if (poLookup.recordtype !== 'purchaseorder') {
-                log.debug('Not a PO', { poId, type: poLookup.recordtype });
-                return;
-            }
-
-            const soId = poLookup.createdfrom && poLookup.createdfrom.length > 0 ? poLookup.createdfrom[0].value : null;
+            if (poLookup.recordtype !== 'purchaseorder') return;
+            const soId = poLookup.createdfrom && poLookup.createdfrom.length ? poLookup.createdfrom[0].value : null;
             if (!soId) return;
 
-            // Load SO
-            const soRec = record.load({
-                type: record.Type.SALES_ORDER,
-                id: soId
-            });
-
-            // Get PO items from search
+            const soRec = record.load({ type: record.Type.SALES_ORDER, id: soId });
             const poItems = getItemsWithPO(soId);
+            const candidates = {};
+            for (let i = 0; i < soRec.getLineCount({ sublistId: 'item' }); i++) {
+                const itemId = id(lineValue(soRec, 'item', i));
+                const lineId = id(lineValue(soRec, 'line', i));
+                // Match the SO search result to its actual line, not just its item.
+                const info = poItems.find(p => p.lineId === lineId && p.itemId === itemId && p.poId === id(poId));
+                if (!info) continue;
+                if (!candidates[itemId]) candidates[itemId] = [];
+                candidates[itemId].push({
+                    lineIndex: i,
+                    location: lineValue(soRec, 'location', i) || soRec.getValue('location'),
+                    transferable: ['invtpart', 'assembly'].includes((info.itemType || '').toLowerCase()),
+                    dropship: checked(lineValue(soRec, 'isdropship', i)) ||
+                        id(lineValue(soRec, 'createpo', i)).toLowerCase() === 'dropship'
+                });
+            }
 
-            // Group lines by destination location
-            const groups = {}; // Key: soLocation, Value: array of { itemId, quantity, lineIndex }
-
-            const lineCount = soRec.getLineCount({ sublistId: 'item' });
-            for (let i = 0; i < lineCount; i++) {
-                const soItem = soRec.getSublistValue({ sublistId: 'item', fieldId: 'item', line: i });
-                const soQty = soRec.getSublistValue({ sublistId: 'item', fieldId: 'quantity', line: i });
-                let soLocation = soRec.getSublistValue({ sublistId: 'item', fieldId: 'location', line: i });
-
-                if (!soLocation) {
-                    soLocation = soRec.getValue('location');
-                }
-
-                // Only handle the line associated with the PO being received
-                const poItemInfo = poItems.find(p => p.itemId === soItem.toString() && p.poId === poId.toString());
-                if (!poItemInfo) {
-                    continue;
-                }
-
-                // Verify item type is transferable (Inventory or Assembly)
-                const type = poItemInfo.itemType || '';
-                const isTransferable = ['invtpart', 'assembly'].includes(type.toLowerCase());
-                if (!isTransferable) {
-                    log.debug('Skipping non-transferable item', { itemId: soItem, type });
-                    continue;
-                }
-
-                // Only handle special order items (skip dropship)
-                const isDropship = soRec.getSublistValue({ sublistId: 'item', fieldId: 'isdropship', line: i });
-                const createPo = soRec.getSublistValue({ sublistId: 'item', fieldId: 'createpo', line: i });
-                const isLineDropship = (isDropship === true || isDropship === 'T' || (createPo && createPo.toString().toLowerCase() === 'dropship'));
-
-                if (isLineDropship) {
-                    log.debug('Skipping dropship line', { line: i, item: soItem });
-                    continue;
-                }
-
-                // If mismatch between PO receipt location and SO line location → queue for TO creation
-                if (soLocation && receiptLocation && soLocation.toString() !== receiptLocation.toString()) {
-                    const destLocStr = soLocation.toString();
-                    if (!groups[destLocStr]) {
-                        groups[destLocStr] = [];
-                    }
-                    groups[destLocStr].push({
-                        itemId: soItem,
-                        quantity: soQty,
-                        lineIndex: i
+            const groups = {};
+            for (let i = 0; i < receipt.getLineCount({ sublistId: 'item' }); i++) {
+                const received = lineValue(receipt, 'itemreceive', i);
+                const quantity = Number(lineValue(receipt, 'quantity', i));
+                if (!checked(received) || !Number.isFinite(quantity) || quantity <= 0) continue;
+                const itemId = id(lineValue(receipt, 'item', i));
+                const matches = candidates[itemId] || [];
+                if (!matches.length) continue;
+                if (matches.length !== 1) {
+                    log.error('Ambiguous receipt item - manual transfer required', {
+                        receiptId, poId, soId, receiptLine: i, itemId, quantity,
+                        salesOrderLines: matches.map(m => m.lineIndex),
+                        reason: 'Multiple SO lines for this item/PO; receipt quantity was not allocated.'
                     });
+                    continue;
                 }
+                const match = matches[0];
+                if (!match.transferable || match.dropship) continue;
+                const from = lineValue(receipt, 'location', i) || receipt.getValue('location');
+                const to = match.location;
+                if (!from || !to) {
+                    log.error('Missing transfer location - manual transfer required', { receiptId, receiptLine: i, itemId, from, to });
+                    continue;
+                }
+                if (id(from) === id(to)) continue;
+                const key = id(from) + '_' + id(to);
+                if (!groups[key]) groups[key] = { from, to, items: [] };
+                groups[key].items.push({
+                    itemId, quantity, lineIndex: match.lineIndex,
+                    // Receipt units can be returned as text; preserve them before setting quantity.
+                    units: lineValue(receipt, 'units', i)
+                });
             }
 
             let soNeedsSave = false;
-
-            // Create Transfer Order for each destination location group
-            for (const destLoc in groups) {
-                const itemsToTransfer = groups[destLoc];
-                if (itemsToTransfer.length === 0) continue;
-
-                log.debug('Creating Transfer Order for location group', {
-                    soId, poId, from: receiptLocation, to: destLoc, itemsCount: itemsToTransfer.length
-                });
-
+            for (const key in groups) {
+                const group = groups[key];
+                const externalId = 'AM_SP_IR_' + receiptId + '_' + key;
                 try {
-                    const toRec = record.create({
-                        type: record.Type.TRANSFER_ORDER,
-                        isDynamic: true
-                    });
-
+                    // Per-receipt key permits later partial receipts, but avoids replaying this group.
+                    const existing = search.create({
+                        type: search.Type.TRANSFER_ORDER,
+                        filters: [['mainline', 'is', 'T'], 'AND', ['externalidstring', 'is', externalId]],
+                        columns: ['internalid']
+                    }).run().getRange({ start: 0, end: 1 });
+                    if (existing.length) {
+                        log.audit('Receipt transfer already exists', { receiptId, externalId, transferOrderId: existing[0].id });
+                        continue;
+                    }
+                    const toRec = record.create({ type: record.Type.TRANSFER_ORDER, isDynamic: true });
                     toRec.setValue({ fieldId: 'subsidiary', value: 4 });
+                    toRec.setValue({ fieldId: 'externalid', value: externalId });
                     toRec.setValue({ fieldId: 'custbody_am_transfer_reason', value: transferReason });
-                    toRec.setValue('location', receiptLocation); // from location
-                    toRec.setValue('transferlocation', parseInt(destLoc, 10)); // to location
-                    toRec.setValue('custbody_am_related_sales_order', soId);
-
-                    // Add all items in the group to the Transfer Order
-                    itemsToTransfer.forEach(item => {
+                    toRec.setValue({ fieldId: 'location', value: group.from });
+                    toRec.setValue({ fieldId: 'transferlocation', value: Number(group.to) });
+                    toRec.setValue({ fieldId: 'custbody_am_related_sales_order', value: soId });
+                    toRec.setValue({ fieldId: 'memo', value: 'Special order partial receipt | Item Receipt ' + receiptId + ' | PO ' + poId });
+                    group.items.forEach(item => {
                         toRec.selectNewLine({ sublistId: 'item' });
-                        toRec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'item', value: item.itemId });
+                        toRec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'item', value: Number(item.itemId) });
+                        if (item.units !== null && item.units !== undefined && item.units !== '') {
+                            if (/^\d+$/.test(String(item.units))) {
+                                toRec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'units', value: Number(item.units) });
+                            } else {
+                                toRec.setCurrentSublistText({ sublistId: 'item', fieldId: 'units', text: String(item.units) });
+                            }
+                        }
                         toRec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity', value: item.quantity });
                         toRec.commitLine({ sublistId: 'item' });
                     });
-
                     const toId = toRec.save();
-                    log.audit('Transfer Order Created', { transferOrderId: toId, toLocation: destLoc });
-
-                    // Update sales order lines with the created TO ID
-                    itemsToTransfer.forEach(item => {
-                        soRec.setSublistValue({
-                            sublistId: 'item',
-                            fieldId: 'custcol_bpc_created_to',
-                            line: item.lineIndex,
-                            value: toId
-                        });
+                    log.audit('Transfer Order Created', {
+                        receiptId, poId, soId, transferOrderId: toId, from: group.from, to: group.to,
+                        items: group.items.map(item => ({ itemId: item.itemId, quantity: item.quantity, units: item.units }))
                     });
-                    soNeedsSave = true;
-
-                } catch (toErr) {
-                    log.error('Error creating Transfer Order for group ' + destLoc, toErr);
+                    group.items.forEach(item => {
+                        // Later partial receipts still create TOs, but keep the first SO line link.
+                        const existingLink = lineValue(soRec, 'custcol_bpc_created_to', item.lineIndex);
+                        if (existingLink !== null && existingLink !== undefined && existingLink !== '') return;
+                        soRec.setSublistValue({ sublistId: 'item', fieldId: 'custcol_bpc_created_to', line: item.lineIndex, value: toId });
+                        soNeedsSave = true;
+                    });
+                } catch (error) {
+                    log.error('Receipt transfer failed - review required', { receiptId, poId, soId, externalId, error });
                 }
             }
-
-            if (soNeedsSave) {
-                soRec.save();
-            }
-
-        } catch (e) {
-            log.error('Error in afterSubmit Item Receipt', e);
+            if (soNeedsSave) soRec.save();
+        } catch (error) {
+            log.error('Error in afterSubmit Item Receipt', { receiptId, error });
         }
     }
 
@@ -175,6 +156,7 @@ define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, run
                     ["taxline", "is", "F"]
                 ],
                 columns: [
+                    search.createColumn({ name: "line", label: "SO Line ID" }),
                     search.createColumn({ name: "purchaseorder", label: "Purchase Order" }),
                     search.createColumn({ name: "item", label: "Item" }),
                     search.createColumn({ name: "type", join: "item", label: "Item Type" })
@@ -187,6 +169,7 @@ define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, run
                 const itemType = result.getValue({ name: 'type', join: 'item' });
                 if (po && itemId) {
                     poItems.push({
+                        lineId: String(result.getValue({ name: 'line' })),
                         itemId: itemId.toString(),
                         poId: po.toString(),
                         itemType: itemType
