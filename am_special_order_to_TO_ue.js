@@ -3,9 +3,11 @@
  * @NScriptType UserEventScript
  * Sandbox: create one Transfer Order per new Item Receipt/source/destination.
  * Uses receipt quantities, skips EDIT, and logs ambiguous item-to-SO matches.
+ * custcol_am_related_to stores HTML links to all TOs appended by this version.
  * custcol_bpc_created_to is populated only when blank, preserving the first TO link.
  */
-define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, runtime) => {
+define(['N/record', 'N/search', 'N/log', 'N/runtime', 'N/url'], (record, search, log, runtime, url) => {
+    const ALL_TO_FIELD = 'custcol_am_related_to';
     const id = value => value == null ? '' : String(value);
     const checked = value => value === true || value === 'T';
     const lineValue = (rec, fieldId, line) => rec.getSublistValue({ sublistId: 'item', fieldId, line });
@@ -16,14 +18,39 @@ define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, run
         stack: error && error.stack
     });
 
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
+
+    // Preserve existing history; append each TO once. Limit matches Text Area's 4000 bytes.
+    function appendToLinks(current, transferIds, linkCache) {
+        let html = id(current);
+        [...new Set(transferIds.filter(Boolean).map(String))].forEach(toId => {
+            if (!/^\d+$/.test(toId)) throw new Error('Invalid TO internal ID: ' + toId);
+            const alreadyLinked = new RegExp('data-am-to=["\']' + toId + '["\']').test(html) ||
+                new RegExp('(?:[?&]|&amp;)id=' + toId + '(?=[&#"\'\\s]|$)').test(html);
+            if (alreadyLinked) return;
+            if (!linkCache[toId]) {
+                const details = search.lookupFields({ type: search.Type.TRANSFER_ORDER, id: toId, columns: ['tranid'] });
+                const href = url.resolveRecord({ recordType: record.Type.TRANSFER_ORDER, recordId: toId, isEditMode: false });
+                linkCache[toId] = '<a data-am-to="' + toId + '" href="' + escapeHtml(href) +
+                    '" target="_blank" rel="noopener noreferrer">' + escapeHtml(details.tranid || ('TO ' + toId)) + '</a>';
+            }
+            html += (html ? '<br />' : '') + linkCache[toId];
+        });
+        const byteLength = encodeURIComponent(html).replace(/%[A-F\d]{2}/gi, 'x').length;
+        if (byteLength > 4000) throw new Error(ALL_TO_FIELD + ' exceeds 4000 bytes; existing links retained. New TO links require manual review.');
+        return html;
+    }
+
     function afterSubmit(context) {
         const receiptId = context.newRecord.id;
         if (context.type !== context.UserEventType.CREATE) {
             log.debug('Receipt event skipped', { receiptId, eventType: context.type, reason: 'CREATE only' });
-          //  return;
+           // return;
         }
         const startedAt = Date.now();
-        const summary = { receiptId, createdTOs: [], duplicateGroups: 0, groupErrors: 0, linksSet: 0, linksPreserved: 0, soSaved: false };
+        const summary = { receiptId, createdTOs: [], duplicateGroups: 0, groupErrors: 0, linksSet: 0, linksPreserved: 0, allToLinksUpdated: 0, linkErrors: 0, soSaved: false };
         let stage = 'load receipt';
         log.audit('Receipt processing started', { receiptId, eventType: context.type });
         try {
@@ -128,6 +155,7 @@ define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, run
             log.debug('Transfer groups prepared', { receiptId, groupCount: Object.keys(groups).length });
             if (!Object.keys(groups).length) summary.skipReason = 'No eligible transfer groups; see line logs';
             let soNeedsSave = false;
+            const linkCache = {};
             for (const key in groups) {
                 const group = groups[key];
                 const externalId = 'AM_SP_IR_' + receiptId + '_' + key;
@@ -186,12 +214,25 @@ define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, run
                         if (existingLink !== null && existingLink !== undefined && existingLink !== '') {
                             summary.linksPreserved++;
                             log.debug('First SO TO link preserved', { receiptId, soId, soLineIndex: item.lineIndex, existingTO: existingLink, newTO: toId });
-                            return;
-                        }
+                        } else {
                         soRec.setSublistValue({ sublistId: 'item', fieldId: 'custcol_bpc_created_to', line: item.lineIndex, value: toId });
                         soNeedsSave = true;
                         summary.linksSet++;
                         log.debug('First SO TO link staged for save', { receiptId, soId, soLineIndex: item.lineIndex, transferOrderId: toId });
+                        }
+                        try {
+                            const current = id(lineValue(soRec, ALL_TO_FIELD, item.lineIndex));
+                            const updated = appendToLinks(current, [existingLink, toId], linkCache);
+                            if (updated !== current) {
+                                soRec.setSublistValue({ sublistId: 'item', fieldId: ALL_TO_FIELD, line: item.lineIndex, value: updated });
+                                soNeedsSave = true;
+                                summary.allToLinksUpdated++;
+                                log.debug('All TO links staged for save', { receiptId, soId, soLineIndex: item.lineIndex, fieldId: ALL_TO_FIELD, transferOrderId: toId });
+                            }
+                        } catch (error) {
+                            summary.linkErrors++;
+                            log.error('All TO links update failed - TO already created', { receiptId, soId, soLineIndex: item.lineIndex, transferOrderId: toId, fieldId: ALL_TO_FIELD, error: errorDetails(error) });
+                        }
                     });
                 } catch (error) {
                     summary.groupErrors++;
@@ -200,12 +241,12 @@ define(['N/record', 'N/search', 'N/log', 'N/runtime'], (record, search, log, run
             }
             if (soNeedsSave) {
                 stage = 'save SO links';
-                log.debug('Saving first TO links on SO', { receiptId, soId, linksSet: summary.linksSet });
+                log.debug('Saving TO links on SO', { receiptId, soId, linksSet: summary.linksSet, allToLinksUpdated: summary.allToLinksUpdated });
                 soRec.save();
                 summary.soSaved = true;
-                log.audit('SO first TO links saved', { receiptId, soId, linksSet: summary.linksSet });
+                log.audit('SO TO links saved', { receiptId, soId, linksSet: summary.linksSet, allToLinksUpdated: summary.allToLinksUpdated });
             } else {
-                log.debug('SO save not required', { receiptId, soId, reason: 'No blank TO link was populated' });
+                log.debug('SO save not required', { receiptId, soId, reason: 'No TO link fields changed' });
             }
         } catch (error) {
             summary.fatalError = errorDetails(error);
