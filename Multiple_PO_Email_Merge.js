@@ -56,6 +56,7 @@ define([
     var CREC_LAST_SENT_DATE = 'custrecord_last_sent_date';
     var CREC_SENDER = 'custrecord_sender';
     var CREC_RECIPIENT = 'custrecord_recipient';
+    var CREC_CC = 'custrecord_am_cc';
     var CREC_VENDOR = 'custrecord_vendor';
     var CREC_EMAIL_STATUS = 'custrecord_email_status';
     var CREC_REVISION_NUMBER = 'custrecord_revision_number';
@@ -236,6 +237,9 @@ define([
         }
 
         var html = file.load({ id: htmlFileId }).getContents();
+        // Keep the existing HTML template; only change the Saved PDF link target.
+        html = html.replace(/renderRecordLink\(\s*(['"])View group PDF\1\s*,\s*po\.groupRecordUrl\s*\)/g,
+            "renderRecordLink('View group PDF', po.pdfUrl)");
         var fieldIds = {
             action: FLD_ACTION,
             selectedIds: FLD_SELECTED_IDS,
@@ -649,7 +653,8 @@ define([
                 data[i].groupMemo = groupTrackingMap[data[i].groupNumber].groupMemo || '';
                 data[i].groupRecordId = groupTrackingMap[data[i].groupNumber].recordId || '';
                 data[i].groupRecordUrl = groupTrackingMap[data[i].groupNumber].recordUrl || '';
-                data[i].hasPdf = !!groupTrackingMap[data[i].groupNumber].pdfId;
+                data[i].pdfUrl = groupTrackingMap[data[i].groupNumber].pdfUrl || '';
+                data[i].hasPdf = !!data[i].pdfUrl;
             }
 
             if (String(data[i].trackingStatus) === String(STATUS_FAILED_ID)) {
@@ -1306,6 +1311,10 @@ define([
         }
         var generateOnly = !!options.generateOnly || !poList[0].vendorSendPoEmail;
         var to = [], cc = [];
+        if (generateOnly) {
+            try { cc = validateEmailList(options.ccText); }
+            catch (ccValidationError) { response.errors.push(ccValidationError.message); return response; }
+        }
         if (!generateOnly) {
             try {
                 to = validateEmailList(options.recipientText === undefined ? poList[0].vendorEmail : options.recipientText);
@@ -1324,7 +1333,7 @@ define([
             tracking = saveTrackingRecord({
                 groupNumber: groupNumber, poIds: ids, groupMemo: groupMemo,
                 emailSubject: options.emailSubject || '', emailBody: options.emailBodyText || '',
-                vendorId: vendorId, recipientEmail: to[0] || '',
+                vendorId: vendorId, recipientEmail: to[0] || '', ccEmails: cc.join(','),
                 statusId: null, incrementRevision: false, preserveEmail: generateOnly
             });
             response.groupRecordId = tracking.id;
@@ -1740,7 +1749,10 @@ function renderGroupedPoRecordPdf(trackingRecordId, revision) {
         if (!values.preserveEmail && runtime.getCurrentUser().id > 0) {
             rec.setValue({ fieldId: CREC_SENDER, value: runtime.getCurrentUser().id });
         }
-        if (!values.preserveEmail || !existingId) rec.setValue({ fieldId: CREC_RECIPIENT, value: values.recipientEmail || '' });
+        if (!values.preserveEmail || !existingId) {
+            rec.setValue({ fieldId: CREC_RECIPIENT, value: values.recipientEmail || '' });
+            rec.setValue({ fieldId: CREC_CC, value: values.ccEmails || '' });
+        }
         if (values.vendorId) {
             rec.setValue({ fieldId: CREC_VENDOR, value: values.vendorId });
         }
@@ -1913,13 +1925,20 @@ function renderGroupedPoRecordPdf(trackingRecordId, revision) {
         runSearch(trackingSearch, 0, function (result) {
             var groupNumber = result.getValue({ name: CREC_GROUP_NUMBER }) || '';
             if (groupNumber && !map[groupNumber]) {
+                var pdfId = result.getValue({name: CREC_GENERATED_PDF}) || '';
+                var pdfUrl = '';
+                if (pdfId) {
+                    try { pdfUrl = file.load({id: pdfId}).url || ''; }
+                    catch (pdfError) { log.error('Grouped PDF link unavailable', {groupId: result.id, pdfId: pdfId, error: pdfError}); }
+                }
                 map[groupNumber] = {
                     recordId: result.id || '',
                     recordUrl: getGroupRecordUrl(result.id),
                     dateSent: result.getValue({ name: CREC_DATE_SENT }) || '',
                     statusId: result.getValue({ name: CREC_EMAIL_STATUS }) || '',
                     groupMemo: result.getValue({ name: CREC_MASTER_MEMO }) || '',
-                    pdfId: result.getValue({name: CREC_GENERATED_PDF}) || ''
+                    pdfId: pdfId,
+                    pdfUrl: pdfUrl
                 };
             }
         });
