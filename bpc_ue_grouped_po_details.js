@@ -269,24 +269,51 @@ function isChecked(value) {
             var group = record.load({type:CUSTOM_REC_TYPE,id:groupId});
             var ids = getPoIds(group.getValue({fieldId:FIELD_PO_NUMBER}));
             var groupUrl = url.resolveRecord({recordType:CUSTOM_REC_TYPE,recordId:groupId});
-            var html = '<div style="padding:14px;background:#eef5ff;border:1px solid #b5c9e8">';
-            html += '<b>Grouped PO: ' + esc(group.getValue({fieldId:'name'})) + '</b> — <a href="' + esc(groupUrl) + '">Open group</a>';
-            html += ' | <a href="' + esc(url.resolveScript({scriptId:'customscript_am_multiple_po_email_merge',deploymentId:'customdeploy_am_multiple_po_email_merge',params:{custpage_group_update:'T',custpage_group_id:String(groupId)}})) + '">Update confirmation / tracking / shipping</a>';
+            var html = groupedPanelStyles() + '<section class="am-gpo-panel" aria-label="Grouped purchase order">';
+            html += '<div class="am-gpo-heading">Grouped purchase order</div><div class="am-gpo-number">' + esc(group.getValue({fieldId:'name'})) + '</div>';
+            html += '<div class="am-gpo-actions"><a href="' + esc(groupUrl) + '">Open group</a>';
+            html += '<a href="' + esc(url.resolveScript({scriptId:'customscript_am_multiple_po_email_merge',deploymentId:'customdeploy_am_multiple_po_email_merge',params:{custpage_group_update:'T',custpage_group_id:String(groupId)}})) + '">Update shipping and tracking</a>';
             var pdfId = group.getValue({fieldId:'custrecord_generated_pdf'});
-            if (pdfId) html += ' | <a target="_blank" href="' + esc(file.load({id:pdfId}).url) + '">Open saved grouped PDF</a>';
-            html += '<p>Group memo: ' + esc(group.getValue({fieldId:'custrecord_master_memo'})) + '</p>';
-            html += '<p>Grouped emails sent by the updated sender are stored in Communication → Messages on the first PO below. Open that PO to view the shared email and replies.</p>';
+            if (pdfId) html += '<a target="_blank" rel="noopener noreferrer" href="' + esc(file.load({id:pdfId}).url) + '">View grouped PDF</a>';
+            html += '</div><table class="am-gpo-details"><tbody><tr><th scope="row">Group memo</th><td class="am-gpo-memo">' + esc(group.getValue({fieldId:'custrecord_master_memo'}) || 'No memo entered') + '</td></tr>';
             if (ids.length) {
                 // Match the sender order, which is sorted by PO number.
                 var poRows = search.create({type:'purchaseorder',filters:[['mainline','is','T'],'AND',['internalid','anyof',ids]],columns:[search.createColumn({name:'tranid',sort:search.Sort.ASC})]}).run().getRange({start:0,end:1000});
+                html += '<tr><th scope="row">Member POs</th><td><div class="am-gpo-members">';
                 poRows.forEach(function (p,index) {
-                    html += (index ? ' | ' : '<b>Communication PO:</b> ') + '<a href="' + esc(url.resolveRecord({recordType:'purchaseorder',recordId:p.id})) + '">' + esc(p.getValue('tranid')) + '</a>';
+                    html += '<a href="' + esc(url.resolveRecord({recordType:'purchaseorder',recordId:p.id})) + '">' + esc(p.getValue('tranid')) + (index === 0 ? ' <span>(communication PO)</span>' : '') + '</a>';
                 });
+                html += '</div></td></tr>';
             }
+            html += '</tbody></table><p class="am-gpo-help">Open the communication PO, then Communication &gt; Messages, to view the shared email and replies.</p>';
             html += renderSharedMessages(ids);
-            html += '</div>';
+            html += '</section>';
             context.form.addField({id:'custpage_grouped_po_information',type:ui.FieldType.INLINEHTML,label:'Grouped PO'}).defaultValue = html;
         } catch (e) { log.error('Grouped PO display failed',e); }
+    }
+    function groupedPanelStyles() {
+        return '<style>' +
+            '.am-gpo-panel{box-sizing:border-box;width:100%;min-width:0;margin:8px 0 16px;border:1px solid #d8e0e8;border-radius:8px;background:#fff;color:#243746;font:13px/1.5 Arial,sans-serif;overflow:hidden;text-align:left}' +
+            '.am-gpo-panel *{box-sizing:border-box}' +
+            '.am-gpo-panel .am-gpo-heading{padding:16px 16px 2px;font-size:16px;font-weight:700;color:#20364b}' +
+            '.am-gpo-panel .am-gpo-number{padding:0 16px 12px;font-size:12px;color:#53677a;overflow-wrap:anywhere}' +
+            '.am-gpo-panel a{color:#145f96;text-decoration:none}.am-gpo-panel a:hover{text-decoration:underline}.am-gpo-panel a:focus-visible{outline:2px solid #145f96;outline-offset:2px}' +
+            '.am-gpo-panel .am-gpo-actions{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 16px}' +
+            '.am-gpo-panel .am-gpo-actions a{display:inline-block;padding:7px 11px;border:1px solid #c9d8e5;border-radius:5px;background:#f4f8fc;font-size:12px;font-weight:600}' +
+            '.am-gpo-panel .am-gpo-details{width:100%;table-layout:fixed;border-collapse:collapse}' +
+            '.am-gpo-panel .am-gpo-details th,.am-gpo-panel .am-gpo-details td{padding:11px 16px;border-top:1px solid #e4eaf0;text-align:left;vertical-align:top;font:13px/1.5 Arial,sans-serif;overflow-wrap:anywhere}' +
+            '.am-gpo-panel .am-gpo-details th{width:125px;background:#f7f9fb;font-weight:600;color:#53677a}' +
+            '.am-gpo-panel .am-gpo-memo{white-space:pre-wrap}.am-gpo-panel .am-gpo-members{display:flex;flex-wrap:wrap;gap:6px}' +
+            '.am-gpo-panel .am-gpo-members a{padding:3px 8px;background:#edf4fa;border-radius:4px}.am-gpo-panel .am-gpo-members span{font-size:11px;color:#53677a}' +
+            '.am-gpo-panel .am-gpo-help{margin:0;padding:12px 16px;color:#617284;font-size:12px}' +
+            '.am-gpo-panel .am-gpo-title{margin:0;padding:12px 16px;border-top:1px solid #e4eaf0;font-size:14px;font-weight:700;background:#f7f9fb}' +
+            '.am-gpo-panel .am-gpo-scroll{width:100%;overflow-x:auto}' +
+            '.am-gpo-panel .am-gpo-messages{width:100%;min-width:650px;table-layout:fixed;border-collapse:collapse;font:12px/1.5 Arial,sans-serif}' +
+            '.am-gpo-panel .am-gpo-messages th{background:#edf2f7;color:#43586b;font-weight:600;text-align:left}' +
+            '.am-gpo-panel .am-gpo-messages th,.am-gpo-panel .am-gpo-messages td{padding:11px 12px;border-bottom:1px solid #dfe6ed;border-right:1px solid #e7edf2;vertical-align:top;overflow-wrap:anywhere;white-space:normal;text-align:left}' +
+            '.am-gpo-panel .am-gpo-messages th:last-child,.am-gpo-panel .am-gpo-messages td:last-child{border-right:0}.am-gpo-panel .am-gpo-messages tbody tr:nth-child(even){background:#f8fafc}' +
+            '.am-gpo-panel .am-gpo-direction{display:inline-block;padding:2px 7px;border-radius:4px;background:#eaf2fa;color:#245b85;font-size:11px;font-weight:600}.am-gpo-panel .am-gpo-incoming{background:#e9f5ef;color:#286345}' +
+            '</style>';
     }
     function renderSharedMessages(ids) {
         if (!ids.length) return '';
@@ -297,21 +324,21 @@ function isChecked(value) {
                 return search.createColumn(c);
             });
             var rows = search.create({type:'purchaseorder',filters:[['mainline','is','T'],'AND',['internalid','anyof',ids]],columns:cols}).run().getRange({start:0,end:101});
-            var html = '<h3>Shared PO communications</h3><table style="width:100%;border-collapse:collapse"><tr><th>Date</th><th>Direction</th><th>Subject</th><th>From</th><th>To</th></tr>', seen = {}, count = 0;
+            var html = '<h3 class="am-gpo-title">Shared PO communications</h3><div class="am-gpo-scroll" role="region" aria-label="Shared PO communications table" tabindex="0"><table class="am-gpo-messages"><colgroup><col style="width:16%"><col style="width:13%"><col style="width:31%"><col style="width:20%"><col style="width:20%"></colgroup><thead><tr><th scope="col">Date</th><th scope="col">Direction</th><th scope="col">Subject</th><th scope="col">From</th><th scope="col">To</th></tr></thead><tbody>', seen = {}, count = 0;
             rows.forEach(function(r) {
                 var id = r.getValue(cols[0]);
                 if (!id || seen[id] || count >= 100) return;
                 seen[id] = true; count++;
                 var incoming = r.getValue(cols[5]);
-                html += '<tr><td>' + esc(r.getValue(cols[2])) + '</td><td>' + (incoming === true || incoming === 'T' ? 'Received' : 'Sent') + '</td><td><a target="_blank" href="/app/crm/common/crmmessage.nl?id=' + encodeURIComponent(id) + '&amp;l=T">' + esc(r.getValue(cols[1]) || '(No subject)') + '</a></td><td>' + esc(r.getValue(cols[3])) + '</td><td>' + esc(r.getValue(cols[4])) + '</td></tr>';
+                html += '<tr><td>' + esc(r.getValue(cols[2])) + '</td><td>' + ('<span class="am-gpo-direction' + (incoming === true || incoming === 'T' ? ' am-gpo-incoming' : '') + '">' + (incoming === true || incoming === 'T' ? 'Received' : 'Sent') + '</span>') + '</td><td><a target="_blank" rel="noopener noreferrer" href="/app/crm/common/crmmessage.nl?id=' + encodeURIComponent(id) + '&amp;l=T">' + esc(r.getValue(cols[1]) || '(No subject)') + '</a></td><td>' + esc(r.getValue(cols[3])) + '</td><td>' + esc(r.getValue(cols[4])) + '</td></tr>';
             });
-            html += '</table>';
-            if (!count) html += '<p>No messages linked to the member POs are visible to your role.</p>';
-            if (rows.length > 100) html += '<p>Showing the latest 100 results. Open the member PO communications for older messages.</p>';
+            html += '</tbody></table></div>';
+            if (!count) html += '<p class="am-gpo-help">No messages linked to the member POs are visible to your role.</p>';
+            if (rows.length > 100) html += '<p class="am-gpo-help">Showing the latest 100 results. Open the member PO communications for older messages.</p>';
             return html;
         } catch(e) {
             log.error('Shared PO message report unavailable',e);
-            return '<p>Shared message report is unavailable. Use the communication PO links above.</p>';
+            return '<p class="am-gpo-help">Shared message report is unavailable. Use the communication PO links above.</p>';
         }
     }
     function esc(value) {
