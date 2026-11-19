@@ -35,6 +35,10 @@ define(['N/runtime', 'N/log', 'N/search'], (runtime, log, search) => {
             for (let i = 0; i < count; i++) {
                 const get = fieldId => rec.getSublistValue({sublistId:'item',fieldId,line:i});
                 if (String(get('item')) === String(item)) { discounts.push(i); continue; }
+                if (header === 0) {
+                    rec.setSublistValue({sublistId:'item',fieldId:LINE,line:i,value:0});
+                    continue;
+                }
                 if (['Subtotal','Description','Discount','Markup','EndGroup','Group'].includes(String(get('itemtype')))) continue;
                 const value = get(LINE), key = String(get('lineuniquekey'));
                 let applied = percent(value);
@@ -52,6 +56,7 @@ define(['N/runtime', 'N/log', 'N/search'], (runtime, log, search) => {
             const amount = -Math.round((total + Number.EPSILON) * 100) / 100;
             // Rebuild only the configured discount item, once, at the end.
             for (let i = discounts.length - 1; i >= 0; i--) rec.removeLine({sublistId:'item',line:discounts[i]});
+            if (header === 0) log.audit({title:'PO discounts cleared',details:{poId:rec.id,lines:count,discountLinesRemoved:discounts.length}});
             if (amount < 0) {
                 const line = rec.getLineCount({sublistId:'item'});
                 rec.insertLine({sublistId:'item',line});
