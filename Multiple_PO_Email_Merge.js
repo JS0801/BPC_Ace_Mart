@@ -1403,10 +1403,22 @@ define([
             if (notes.length > 3000) throw new Error('Keep the shared note below 3,000 characters.');
             var date = datestring ? nsFormat.parse({value:datestring,type:nsFormat.Type.DATE}) : null;
             if (date && (!(date instanceof Date) || isNaN(date.getTime()))) throw new Error('Enter a valid expected shipping date.');
+            // Resolve display numbers before attempting updates, including workflow-locked POs.
+            var poNumbers = {};
+            if (ids.length) {
+                try {
+                    runSearch(search.create({type:'purchaseorder',filters:[['mainline','is','T'],'AND',['internalid','anyof',ids]],columns:['internalid','tranid']}), 0, function (row) {
+                        poNumbers[String(row.id || row.getValue('internalid'))] = String(row.getValue('tranid') || '');
+                    });
+                } catch (numberError) { log.error('Grouped PO number lookup failed', numberError); }
+            }
+            function poLabel(id) { return poNumbers[String(id)] || 'PO (number unavailable)'; }
             for (var i=0; i<ids.length; i++) {
-                if (runtime.getCurrentScript().getRemainingUsage() < 80) { failed = failed.concat(ids.slice(i).map(String)); messages.push('The remaining POs were not updated because this request reached its processing limit.'); break; }
+                var displayPo = poLabel(ids[i]);
+                if (runtime.getCurrentScript().getRemainingUsage() < 80) { failed = failed.concat(ids.slice(i).map(poLabel)); messages.push('The remaining POs were not updated because this request reached its processing limit.'); break; }
                 try {
                     var po=record.load({type:'purchaseorder',id:ids[i]});
+                    displayPo = String(po.getValue({fieldId:'tranid'}) || displayPo);
                     if (String(po.getValue({fieldId:FIELD_GROUP_NUMBER}) || '') !== groupName) throw new Error('PO group changed; refresh before retrying.');
                     var oldMemo=String(po.getValue({fieldId:'memo'}) || '');
                     var updates = {};
@@ -1417,8 +1429,8 @@ define([
                         if (nextMemo.split(/\r?\n/).indexOf(dateNote) < 0) updates.memo = nextMemo + (nextMemo ? '\n' : '') + dateNote;
                     } else if (date) updates.shipdate = date;
                     if (Object.keys(updates).length) record.submitFields({type:'purchaseorder',id:ids[i],values:updates,options:{enableSourcing:false,ignoreMandatoryFields:false}});
-                    successful.push(String(po.getValue({fieldId:'tranid'}) || ids[i]));
-                } catch(e) {failed.push(String(ids[i]));messages.push('PO '+ids[i]+': '+e.message);}
+                    successful.push(displayPo);
+                } catch(e) {failed.push(displayPo);messages.push(displayPo+': '+e.message);}
             }
             if (successful.length) messages.unshift('Updated: '+successful.join(', ')+'. Existing notes were preserved. Regenerate the grouped PDF to reflect changes.');
             if (successful.length && date && noteDateOnly) messages.push('Estimated date recorded in member memos. The PO shipping date field was not changed.');
