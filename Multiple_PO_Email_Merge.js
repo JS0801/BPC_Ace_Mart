@@ -1399,7 +1399,7 @@ define([
             var expected = parseIds(p.custpage_group_members || '').sort().join(',');
             if (ids.map(String).sort().join(',') !== expected) throw new Error('Group membership changed. Reload and review before updating.');
             if (!notes && !datestring) throw new Error('Enter notes or an expected shipping date.');
-            if (noteDateOnly && !datestring) throw new Error('Enter the estimated shipping date to record in member memos.');
+            if (noteDateOnly && !datestring) throw new Error('Enter the estimated shipping date to record in member PO Internal Notes.');
             if (notes.length > 3000) throw new Error('Keep the shared note below 3,000 characters.');
             var date = datestring ? nsFormat.parse({value:datestring,type:nsFormat.Type.DATE}) : null;
             if (date && (!(date instanceof Date) || isNaN(date.getTime()))) throw new Error('Enter a valid expected shipping date.');
@@ -1420,26 +1420,26 @@ define([
                     var po=record.load({type:'purchaseorder',id:ids[i]});
                     displayPo = String(po.getValue({fieldId:'tranid'}) || displayPo);
                     if (String(po.getValue({fieldId:FIELD_GROUP_NUMBER}) || '') !== groupName) throw new Error('PO group changed; refresh before retrying.');
-                    var oldMemo=String(po.getValue({fieldId:'memo'}) || '');
+                    var oldMemo=String(po.getValue({fieldId:'custbody_vendor_memo'}) || '');
                     var updates = {};
-                    if (notes && oldMemo.indexOf(notes) < 0) updates.memo = oldMemo + (oldMemo ? '\n' : '') + notes;
+                    if (notes && oldMemo.indexOf(notes) < 0) updates.custbody_vendor_memo = oldMemo + (oldMemo ? '\n' : '') + notes;
                     if (date && noteDateOnly) {
                         var dateNote = 'Estimated shipping date: ' + datestring;
-                        var nextMemo = updates.memo || oldMemo;
-                        if (nextMemo.split(/\r?\n/).indexOf(dateNote) < 0) updates.memo = nextMemo + (nextMemo ? '\n' : '') + dateNote;
-                    } else if (date) updates.shipdate = date;
+                        var nextMemo = updates.custbody_vendor_memo || oldMemo;
+                        if (nextMemo.split(/\r?\n/).indexOf(dateNote) < 0) updates.custbody_vendor_memo = nextMemo + (nextMemo ? '\n' : '') + dateNote;
+                    } else if (date) updates.custbody_ace_po_shippeddate = date;
                     if (Object.keys(updates).length) record.submitFields({type:'purchaseorder',id:ids[i],values:updates,options:{enableSourcing:false,ignoreMandatoryFields:false}});
                     successful.push(displayPo);
                 } catch(e) {failed.push(displayPo);messages.push(displayPo+': '+e.message);}
             }
             if (successful.length) messages.unshift('Updated: '+successful.join(', ')+'. Existing notes were preserved. Regenerate the grouped PDF to reflect changes.');
-            if (successful.length && date && noteDateOnly) messages.push('Estimated date recorded in member memos. The PO shipping date field was not changed.');
+            if (successful.length && date && noteDateOnly) messages.push('Estimated date recorded in member PO Internal Notes. The Vendor Shipped Date field was not changed.');
             if (failed.length) messages.push('Not updated: '+failed.join(', ')+'. Review these records before retrying. Repeating the identical note will not append it twice.');
         }
         hidden('custpage_group_members',ids.join(','));
-        var n=form.addField({id:'custpage_group_notes',type:serverWidget.FieldType.LONGTEXT,label:'Confirmation / tracking notes — append to every PO memo'});n.defaultValue=notes;
+        var n=form.addField({id:'custpage_group_notes',type:serverWidget.FieldType.LONGTEXT,label:'Confirmation / tracking notes — append to every PO Internal Notes'});n.defaultValue=notes;
         var d=form.addField({id:'custpage_group_shipdate',type:serverWidget.FieldType.DATE,label:'Expected shipping date — apply to every PO'});d.defaultValue=datestring;
-        var opt=form.addField({id:'custpage_group_date_note',type:serverWidget.FieldType.CHECKBOX,label:'Record estimated date in PO memos only (leave shipping date field unchanged)'});opt.defaultValue=noteDateOnly?'T':'F';
+        var opt=form.addField({id:'custpage_group_date_note',type:serverWidget.FieldType.CHECKBOX,label:'Record estimated date in PO Internal Notes only (leave Vendor Shipped Date unchanged)'});opt.defaultValue=noteDateOnly?'T':'F';
         var html='<p>Applies to all '+ids.length+' POs in this group. Blank fields leave existing values unchanged.</p>';
         messages.forEach(function(m){html+='<p>'+escapeHtml(m)+'</p>';});
         html+='<p><a href="'+escapeHtml(getGroupRecordUrl(groupId))+'">Return to grouped PO</a></p>';
